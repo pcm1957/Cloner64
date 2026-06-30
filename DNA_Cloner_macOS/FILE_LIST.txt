@@ -1,0 +1,72 @@
+Cloner 64 for macOS — File List
+=======================================
+
+45 Swift source files • ~31,000 lines of code
+
+Models/
+  DNASequence.swift              Core DNA sequence data model
+  DNASequence+ORFs.swift         ORF finding extension
+  ProteinSequence.swift          Protein sequence model (MW, pI, extinction)
+  SequenceManager.swift          Central document controller
+  RestrictionEnzyme.swift        Enzyme database (~90 enzymes) and cut site scanner
+  MethylationSensitivity.swift   Per-enzyme methylation sensitivity data
+  FeatureLibrary.swift           Feature Collection system (~30 common elements)
+  CloningStrategyAnalyzer.swift  Predictive cloning engine
+  CloningPrimerTransfer.swift    Bridge: Predictive Cloning → Primer Design
+  ShuttleVectorLibrary.swift     Shuttle vector database
+  ShuttleVectorPathfinder.swift  Multi-step shuttle route finder
+  SequenceAligner.swift          Pairwise DNA alignment engine
+  XDNAParser.swift               Serial Cloner XDNA/XPRT binary parser
+  SnapGeneParser.swift           SnapGene .dna binary parser
+  AppState.swift                 App-wide state
+  FocusedSequenceValues.swift    SwiftUI focus bridge for Edit menu
+
+Views/
+  DNAClonerApp.swift             App entry point, menus, window groups
+  WelcomeView.swift              Welcome screen with recent files
+  SequenceEditorView.swift       Main sequence editor (multi-tab)
+  SequenceWindowView.swift       Standalone window wrapper
+  GraphicalMapView.swift         Circular/linear graphical map renderer
+  SequenceMapView.swift          Text-based restriction map window
+  SequenceMapRenderer.swift      Text map generation engine
+  ConstructBuilderView.swift     In silico ligation workbench
+  VirtualCutterView.swift        Virtual digest with gel simulation
+  PredictiveCloningView.swift    Predictive cloning UI
+  PrimerDesignView.swift         PCR primer design tool
+  PCRSimulationView.swift        In silico PCR simulation
+  AlignTwoSequencesView.swift    DNA pairwise alignment window
+  AlignTwoProteinSequencesView.swift  Protein pairwise alignment window
+  ProteinWindowView.swift        Protein sequence viewer
+  HydropathyPlotView.swift       Kyte-Doolittle hydropathy plot
+  FeatureCollectionView.swift    Feature Collection manager
+  RestrictionSitesView.swift     Enzyme analysis panel
+  RestrictionEnzymeListView.swift  Editable enzyme database window
+  SiteUsageView.swift            Full site usage table
+  CompatibleEndsView.swift       Compatible cohesive ends reference
+  ShuttleVectorListView.swift    Shuttle vector library browser
+  AnalysisView.swift             Analysis tab (GC, composition, Tm)
+  ReferenceTablesView.swift      Genetic code and IUPAC tables
+  ImportPreferencesView.swift    Import settings
+
+Managers/
+  GraphicalMapWindowManager.swift   Opens standalone map windows
+  FeatureLibrary+Import.swift       Import extension for feature libraries
+
+Root Level
+  ContentView.swift              Original sidebar view (legacy)
+
+Resources/
+  Info.plist                     App configuration
+
+Documentation/
+  README.md                      Usage guide and feature reference
+  SETUP.md                       Xcode setup instructions
+
+QUICK START:
+1. Open Xcode 14+
+2. Create new macOS App project (SwiftUI, Swift)
+3. Drag DNA_Cloner_macOS contents into project
+4. Set deployment target to macOS 12.0
+5. Build and run (Cmd+R)
+
+See SETUP.md for detailed instructions.
