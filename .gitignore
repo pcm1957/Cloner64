@@ -1,0 +1,35 @@
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode build products and caches
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+
+# Xcode per-user settings
+xcuserdata/
+*.xcuserdatad/
+
+# Xcode workspace settings that are machine-specific
+*.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# Compiled output and archives
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Obj-C/Swift specific
+*.hmap
+
+# CocoaPods
+Pods/
+
+# Crash logs
+*.crash
