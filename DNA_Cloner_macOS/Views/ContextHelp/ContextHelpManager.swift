@@ -186,6 +186,10 @@ final class ContextHelpManager: ObservableObject {
                     "Minimum Fragment Size",
                     "Hide fragments smaller than this size from the gel display. Drag the slider right to filter out very small fragments that clutter the lower part of the gel. The underlying data is unchanged — only the display is filtered."
                 ),
+                "vcutter.gelStrength": (
+                    "Gel Strength",
+                    "Sets the agarose concentration, and moves the bands to where they would run on a gel of that strength.\n\nEach concentration separates a particular size range well. Lower percentages spread out large fragments; higher percentages spread out small ones. Fragments above the range bunch up near the well, and those below it run down near the dye front — which is why the same digest can look quite different on two gels.\n\nThe caption under the slider shows the range the current strength resolves. The co-migration warning on each lane also follows the slider: two fragments that merge into one band on a 2% gel may separate cleanly on a 0.7% one. If a different strength would resolve more bands, a note appears suggesting it.\n\nThis is a model based on standard agarose tables, not a simulation of your own equipment. It is reliable about which bands separate from which; exact spacing will depend on your buffer, voltage and run time."
+                ),
                 "vcutter.enzymeList": (
                     "Restriction Enzyme List",
                     "Lists all enzymes in the database (or just your starred enzymes if 'My Enzymes Only' is on). Italic/greyed names do not cut the selected sequence.\n\nWhen a methylation type is active, a small annotation appears beside sensitive enzymes:\n• Red — the methylation blocks cutting. The enzyme will not cut at methylated sites.\n• Blue — the methylation is required for cutting. The enzyme only works at methylated sites (e.g. DpnI requires Dam methylation).\n• Orange — partial or context-dependent sensitivity."

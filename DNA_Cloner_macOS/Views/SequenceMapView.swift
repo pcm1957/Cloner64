@@ -387,7 +387,9 @@ struct SequenceMapView: View {
                                 }
                                 .frame(width: 160, alignment: .leading)
                                 
-                                Text("\(feature.start)").frame(width: 70, alignment: .trailing)
+                                // start is stored 0-based, end is exclusive — the
+                                // 1-based display is (start + 1) .. end.
+                                Text("\(feature.start + 1)").frame(width: 70, alignment: .trailing)
                                 Text("\(feature.end)").frame(width: 70, alignment: .trailing)
                                 Text("\(lengthBP) bp").frame(width: 70, alignment: .trailing)
                                 Text(isCoding && lengthBP >= 3 ? "\(lengthBP / 3)" : "–")
@@ -1071,11 +1073,10 @@ class SequenceMapWindowManager {
         
         windows.append(window)
         
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
+        // Self-removing observer — see observeWindowClose in
+        // GraphicalMapWindowManager.swift. Restriction maps capture the whole
+        // sequence, so never releasing them is expensive.
+        observeWindowClose(window) { [weak self] in
             self?.windows.removeAll { $0 == window }
         }
     }

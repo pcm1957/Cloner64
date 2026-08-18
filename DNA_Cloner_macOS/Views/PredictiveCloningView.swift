@@ -859,7 +859,8 @@ struct PredictiveCloningView: View {
                     Picker("", selection: $upstreamFeatureID) {
                         Text("— Select —").tag(UUID?.none)
                         ForEach(v.features) { f in
-                            Text("\(f.name) (\(min(f.start, f.end) + 1)–\(max(f.start, f.end) + 1))").tag(UUID?.some(f.id))
+                            // end is EXCLUSIVE, so it is already the 1-based last base — only start needs +1.
+                            Text("\(f.name) (\(min(f.start, f.end) + 1)–\(max(f.start, f.end)))").tag(UUID?.some(f.id))
                         }
                     }.labelsHidden().frame(maxWidth: 350)
                     .contextHelp("predict.betweenFeatures5")
@@ -869,7 +870,8 @@ struct PredictiveCloningView: View {
                     Picker("", selection: $downstreamFeatureID) {
                         Text("— Select —").tag(UUID?.none)
                         ForEach(v.features) { f in
-                            Text("\(f.name) (\(min(f.start, f.end) + 1)–\(max(f.start, f.end) + 1))").tag(UUID?.some(f.id))
+                            // end is EXCLUSIVE, so it is already the 1-based last base — only start needs +1.
+                            Text("\(f.name) (\(min(f.start, f.end) + 1)–\(max(f.start, f.end)))").tag(UUID?.some(f.id))
                         }
                     }.labelsHidden().frame(maxWidth: 350)
                     .contextHelp("predict.betweenFeatures3")
@@ -1022,7 +1024,8 @@ struct PredictiveCloningView: View {
                     if let src = selectedSource {
                         Picker("", selection: $selectedFeatureID) {
                             Text("Choose…").tag(nil as UUID?)
-                            ForEach(src.features) { f in Text("\(f.name) (\(min(f.start,f.end)+1)–\(max(f.start,f.end)+1))").tag(f.id as UUID?) }
+                            // end is EXCLUSIVE — already the 1-based last base.
+                            ForEach(src.features) { f in Text("\(f.name) (\(min(f.start,f.end)+1)–\(max(f.start,f.end)))").tag(f.id as UUID?) }
                         }.labelsHidden().frame(maxWidth: 400)
                         // Re-run the fusion scan when the chosen feature changes,
                         // so the picked feature is offered as a fusion candidate.
@@ -1164,7 +1167,8 @@ struct PredictiveCloningView: View {
                                     Picker("", selection: $vectorTagFeatureID) {
                                         Text("Not specified").tag(nil as UUID?)
                                         ForEach(vector.features) { f in
-                                            Text("\(f.name) (\(min(f.start,f.end)+1)–\(max(f.start,f.end)+1), \(f.strand == .reverse ? "−" : "+") strand)\(tagTerminusLabel(for: f).map { " — \($0)" } ?? "")")
+                                            // end is EXCLUSIVE — already the 1-based last base.
+                                            Text("\(f.name) (\(min(f.start,f.end)+1)–\(max(f.start,f.end)), \(f.strand == .reverse ? "−" : "+") strand)\(tagTerminusLabel(for: f).map { " — \($0)" } ?? "")")
                                                 .tag(f.id as UUID?)
                                         }
                                     }
@@ -1187,7 +1191,8 @@ struct PredictiveCloningView: View {
                                     Picker("", selection: $vectorTag3FeatureID) {
                                         Text("Not specified").tag(nil as UUID?)
                                         ForEach(vector.features) { f in
-                                            Text("\(f.name) (\(min(f.start,f.end)+1)–\(max(f.start,f.end)+1), \(f.strand == .reverse ? "−" : "+") strand)\(tagTerminusLabel(for: f).map { " — \($0)" } ?? "")")
+                                            // end is EXCLUSIVE — already the 1-based last base.
+                                            Text("\(f.name) (\(min(f.start,f.end)+1)–\(max(f.start,f.end)), \(f.strand == .reverse ? "−" : "+") strand)\(tagTerminusLabel(for: f).map { " — \($0)" } ?? "")")
                                                 .tag(f.id as UUID?)
                                         }
                                     }

@@ -56,8 +56,8 @@ struct BLOSUM62 {
     
     /// Return BLOSUM62 score for two amino acids
     static func score(_ a: Character, _ b: Character) -> Int {
-        let aa = Character(String(a).uppercased())
-        let bb = Character(String(b).uppercased())
+        let aa = a.sequenceUppercased
+        let bb = b.sequenceUppercased
         // Stop codons: identical * matches, otherwise large penalty
         if aa == "*" || bb == "*" {
             return aa == bb ? 1 : -4
@@ -68,8 +68,8 @@ struct BLOSUM62 {
     
     /// Classify the relationship between two aligned amino acids
     static func matchSymbol(_ a: Character, _ b: Character) -> Character {
-        let aa = Character(String(a).uppercased())
-        let bb = Character(String(b).uppercased())
+        let aa = a.sequenceUppercased
+        let bb = b.sequenceUppercased
         if aa == bb { return "*" }   // identical (including * == *)
         if aa == "*" || bb == "*" { return " " }  // stop vs non-stop = no similarity
         let s = score(aa, bb)
@@ -643,8 +643,8 @@ struct AlignTwoProteinSequencesView: View {
                 
                 // Highlight differences
                 if isHighlighting && i < otherChunk.count && otherChunk[i] != "-" {
-                    let upper1 = Character(String(ch).uppercased())
-                    let upper2 = Character(String(otherChunk[i]).uppercased())
+                    let upper1 = ch.sequenceUppercased
+                    let upper2 = otherChunk[i].sequenceUppercased
                     if upper1 != upper2 {
                         attrs[.backgroundColor] = diffBgColor
                     }
@@ -657,7 +657,7 @@ struct AlignTwoProteinSequencesView: View {
     
     /// NSColor version of amino acid property colouring
     private func nsColorForAA(_ aa: Character) -> NSColor {
-        switch Character(String(aa).uppercased()) {
+        switch aa.sequenceUppercased {
         case "G", "A", "V", "L", "I", "P": return NSColor.labelColor
         case "F", "W", "Y":                 return NSColor.purple
         case "D", "E":                       return NSColor.red
@@ -742,10 +742,10 @@ class AlignTwoProteinSequencesWindowManager {
         
         windows.append(window)
         
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window, queue: .main
-        ) { [weak self] _ in
+        // Self-removing observer — see observeWindowClose in
+        // GraphicalMapWindowManager.swift. Without it the handler retains the
+        // window and both aligned sequences for the lifetime of the app.
+        observeWindowClose(window) { [weak self] in
             self?.windows.removeAll { $0 == window }
         }
     }

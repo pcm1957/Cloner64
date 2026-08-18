@@ -776,9 +776,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var sequenceManager: SequenceManager?
     var hasFinishedInitialSetup = false
     private var menuObserver: Any?
+    private var menuItemRemovedObserver: Any?
     private var menuTrackingObserver: Any?
     private var keyMonitor: Any?
     private var recentMenuCancellable: AnyCancellable?
+    /// Coalesces the many item-added/removed notifications SwiftUI emits while
+    /// rebuilding the File menu into a single repair pass.
+    private var recentMenuRepairScheduled = false
     /// Strong ref so ARC keeps self as the File menu delegate
     private var retainedSelf: AppDelegate?
     /// True while any menu is open. Guards refreshNativeRecentFilesMenu()
@@ -817,8 +821,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if menu.items.contains(where: { self.unwantedTitles.contains($0.title) }) {
                 DispatchQueue.main.async { self.cleanMenu(menu) }
             }
+            self.noteMenuStructureChanged(menu)
         }
-        
+
+        // SwiftUI rebuilds the File menu by removing items as well as adding
+        // them, so watch both. Without the removal case a rebuild that only
+        // strips items would leave the stale (empty) Open Recent in place.
+        menuItemRemovedObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didRemoveItemNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let self, let menu = notification.object as? NSMenu else { return }
+            self.noteMenuStructureChanged(menu)
+        }
+
         menuTrackingObserver = nil
 
         // Sweep once after SwiftUI finishes building menus, then install self
@@ -885,6 +900,53 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         retainedSelf = self   // keep ARC from dropping the weak delegate ref
     }
 
+    // MARK: - Keeping Open Recent alive across SwiftUI menu rebuilds
+
+    /// Called whenever any menu gains or loses items.
+    ///
+    /// The native Open Recent submenu used to be installed only twice, on
+    /// timers 0.5s and 2.0s after launch. When SwiftUI rebuilt the File menu
+    /// after that — which happens later on a cold launch, e.g. the first run of
+    /// a fresh build — it replaced the submenu with its own empty placeholder
+    /// AND dropped the NSMenuDelegate that would otherwise have refreshed it.
+    /// From then on the menu stayed empty until something changed the recent
+    /// files list, which is why opening any file made the whole list reappear.
+    ///
+    /// Reacting to the rebuild itself fixes it at the source.
+    private func noteMenuStructureChanged(_ menu: NSMenu) {
+        guard let mainMenu = NSApp.mainMenu else { return }
+        let fileMenu = mainMenu.items.first(where: { $0.title == "File" })?.submenu
+
+        // Only care about the menu bar itself and the File menu. In particular
+        // do NOT react to changes in the Open Recent submenu — rebuilding it is
+        // what this repair does, and reacting to our own edits would loop.
+        guard menu === mainMenu || (fileMenu != nil && menu === fileMenu) else { return }
+
+        scheduleRecentMenuRepair()
+    }
+
+    /// Re-attaches the menu delegates and rebuilds Open Recent, once, on the
+    /// next runloop tick.
+    ///
+    /// Deferring matters: these notifications arrive *while* AppKit is mutating
+    /// the menu, and touching the item array at that moment is what caused the
+    /// out-of-bounds crash described on refreshNativeRecentFilesMenu(). The
+    /// tracking guard inside that method is the second line of defence.
+    private func scheduleRecentMenuRepair() {
+        guard !recentMenuRepairScheduled else { return }
+        recentMenuRepairScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.recentMenuRepairScheduled = false
+            // Never repair while the user has a menu open — the refresh would
+            // change the item count underneath AppKit's cached row heights.
+            // menuWillOpen() refreshes before display anyway, so nothing is lost.
+            guard !self.isTrackingAnyMenu else { return }
+            self.installFileMenuDelegate()
+            self.refreshNativeRecentFilesMenu()
+        }
+    }
+
     /// NSMenuDelegate — called just before any top-level menu appears.
     func menuWillOpen(_ menu: NSMenu) {
         // Refresh Open Recent *before* setting the tracking flag, so the
@@ -899,6 +961,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// NSMenuDelegate — called after any top-level menu closes.
     func menuDidClose(_ menu: NSMenu) {
         isTrackingAnyMenu = false
+        // If SwiftUI rebuilt the File menu while this menu was open, the repair
+        // was skipped (correctly — mutating a live menu is what crashed AppKit
+        // before) and the delegate may have been dropped with it, so no future
+        // menuWillOpen would fire to recover. Now that nothing is being tracked
+        // it is safe to re-attach and rebuild.
+        scheduleRecentMenuRepair()
     }
 
     // MARK: - Native Open Recent Menu

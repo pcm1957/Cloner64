@@ -892,28 +892,19 @@ final class ConstructCheckAnalyzer {
         max(bandToleranceBp, Int(Double(band) * bandTolerancePct))
     }
     
+    /// Fragment sizes for a digest, largest first.
+    ///
+    /// Delegates to DigestCalculator (RestrictionEnzyme.swift), which is now the
+    /// only implementation of this calculation. The inline version this replaces
+    /// reported an extra full-length band for every pair of enzymes that cut the
+    /// same base on a circular molecule — reachable with isoschizomer pairs such
+    /// as MspI + HpaII, which share both site and cut offset.
     private func digestFragments(seqLen: Int, isCircular: Bool,
                                  cutPositions: [Int]) -> [Int] {
-        guard seqLen > 0 else { return [] }
-        let cuts = cutPositions
-            .map { (($0 % seqLen) + seqLen) % seqLen }
-            .sorted()
-        if cuts.isEmpty { return [seqLen] }
-        var fragments: [Int] = []
-        if isCircular {
-            for i in 0..<cuts.count {
-                let next = (i + 1) % cuts.count
-                let dist = (cuts[next] - cuts[i] + seqLen) % seqLen
-                fragments.append(dist == 0 ? seqLen : dist)
-            }
-        } else {
-            fragments.append(cuts[0])
-            for i in 0..<(cuts.count - 1) {
-                fragments.append(cuts[i + 1] - cuts[i])
-            }
-            fragments.append(seqLen - cuts.last!)
-        }
-        return fragments.filter { $0 > 0 }.sorted(by: >)
+        DigestCalculator.fragmentSizes(cutPositions: cutPositions,
+                                       sequenceLength: seqLen,
+                                       circular: isCircular)
+            .sorted(by: >)
     }
     
     private func patternDifference(_ a: [Int], _ b: [Int]) -> Int {

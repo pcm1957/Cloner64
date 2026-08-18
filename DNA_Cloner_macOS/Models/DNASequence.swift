@@ -2,6 +2,58 @@ import SwiftUI
 import Foundation
 import Combine
 
+// MARK: - Melting Temperature
+
+/// The single implementation of primer/oligo melting temperature.
+///
+/// This calculation previously existed in three places — PrimerDesignView,
+/// PCRSimulationView and SequenceEditorView. Two of them guarded the salt term
+/// with `max(naM, 0.001)`; the third used a bare `log10(naConcentration)`, which
+/// returns −infinity at zero. That copy is currently safe only because its salt
+/// concentration is hard-coded to 0.050 — but the other two views bind theirs to
+/// an editable text field, so the guard exists precisely because a user can type
+/// a zero. Keeping three copies is how one of them came to lose it.
+///
+/// The formula itself is unchanged: Serial Cloner's three-tier rule, so every
+/// number the app currently shows stays the same.
+enum MeltingTemperature {
+
+    /// Melting temperature in °C for an oligo, using Serial Cloner's three-tier
+    /// formula with a salt correction.
+    ///
+    /// - Parameters:
+    ///   - oligo: the sequence. Only A/T/G/C are counted; anything else
+    ///     (ambiguity codes, gaps, whitespace) is ignored, as before.
+    ///   - sodiumMolar: Na⁺ concentration in MOLES per litre — note that the
+    ///     views hold it in mM and divide by 1000 before calling.
+    /// - Returns: Tm in °C, or 0 for an oligo with no countable bases.
+    static func celsius(for oligo: String, sodiumMolar: Double) -> Double {
+        var gc = 0, at = 0
+        for ch in oligo.uppercased() {
+            switch ch {
+            case "G", "C": gc += 1
+            case "A", "T": at += 1
+            default: break
+            }
+        }
+        let total = gc + at
+        guard total > 0 else { return 0 }
+
+        // Clamp the salt term. log10(0) is −infinity, which would propagate an
+        // infinite Tm through every downstream calculation and display.
+        let logNa = log10(max(sodiumMolar, 0.001))
+
+        if total < 14 {
+            // Wallace rule, corrected from the 50 mM the rule assumes.
+            return Double(at * 2 + gc * 4) - 16.6 * log10(0.050) + 16.6 * logNa
+        } else if total <= 51 {
+            return 100.5 + 41.0 * Double(gc) / Double(total) - 820.0 / Double(total) + 16.6 * logNa
+        } else {
+            return 81.5 + 41.0 * Double(gc) / Double(total) - 500.0 / Double(total) + 16.6 * logNa
+        }
+    }
+}
+
 // MARK: - Strand Enum
 enum Strand: String, Codable {
     case forward
@@ -73,6 +125,156 @@ struct Feature: Identifiable, Codable, Equatable {
     var color: CodableColor
     var showArrow: Bool = true   // Whether to draw directional arrow on graphical map
     var source: FeatureSource = .imported  // How this feature was added
+}
+
+// MARK: - Feature Coordinate Adjustment
+//
+// Editing a sequence moves every downstream feature. These helpers are the
+// SINGLE place that logic lives — previously it was duplicated (and subtly
+// wrong) in SequenceEditorView, and missing entirely from ProteinWindowView.
+//
+// COORDINATE CONVENTION
+// `start` is inclusive, `end` is EXCLUSIVE, matching subsequence(from:to:)
+// and `length = end - start` as used throughout the app.
+//
+// ORIGIN-WRAPPING FEATURES
+// On a circular sequence a feature may store start > end, meaning it wraps the
+// origin and covers TWO arcs: [start, sequenceLength) and [0, end). See
+// CloningStrategyAnalyzer.wrapsOrigin and PredictiveCloningView.wrapsOrigin.
+// This is NOT the same as reverse strand — direction lives in `strand`.
+//
+// Wrapping features are why these helpers need the sequence length: without
+// it there is no way to tell where the first arc ends. Treating a wrapping
+// feature as min(start,end)...max(start,end) turns a small feature straddling
+// the origin into one covering almost the whole plasmid.
+
+extension Feature {
+
+    /// True if this feature wraps the origin of a circular sequence.
+    var wrapsOrigin: Bool { start > end }
+
+    /// Adjusts this feature's coordinates after the bases in
+    /// `[deleteStart, deleteEnd)` are removed from the sequence.
+    ///
+    /// - Parameters:
+    ///   - deleteStart: first base removed (inclusive).
+    ///   - deleteEnd: one past the last base removed (exclusive).
+    ///   - sequenceLength: length of the sequence BEFORE the deletion. Required
+    ///     to interpret origin-wrapping features.
+    /// - Returns: the adjusted feature, or `nil` if nothing of it survives.
+    func adjustedForDeletion(deleteStart: Int, deleteEnd: Int, sequenceLength: Int) -> Feature? {
+        guard deleteEnd > deleteStart else { return self }   // nothing removed
+
+        let deleteLen = deleteEnd - deleteStart
+        let newLength = Swift.max(0, sequenceLength - deleteLen)
+
+        /// Maps one coordinate through the deletion. Coordinates that fall
+        /// inside the removed region collapse onto `deleteStart`.
+        func mapped(_ c: Int) -> Int {
+            if c <= deleteStart { return c }
+            if c >= deleteEnd   { return c - deleteLen }
+            return deleteStart
+        }
+
+        var result = self
+
+        // --- Ordinary feature: a single arc [start, end) ---
+        if !wrapsOrigin {
+            // Entirely inside the deleted region — gone.
+            if start >= deleteStart && end <= deleteEnd { return nil }
+            let newStart = mapped(start)
+            let newEnd   = mapped(end)
+            if newStart >= newEnd { return nil }   // trimmed to nothing
+            result.start = newStart
+            result.end   = newEnd
+            return result
+        }
+
+        // --- Origin-wrapping feature: [start, sequenceLength) + [0, end) ---
+        let arc1Start = mapped(start)          // tail arc, runs to the end
+        let arc2End   = mapped(end)            // head arc, runs from 0
+        let arc1Alive = arc1Start < newLength
+        let arc2Alive = arc2End   > 0
+
+        switch (arc1Alive, arc2Alive) {
+        case (false, false):
+            return nil                          // both arcs deleted
+
+        case (true, false):
+            // Only the tail survives — no longer wraps.
+            result.start = arc1Start
+            result.end   = newLength
+            return result.start < result.end ? result : nil
+
+        case (false, true):
+            // Only the head survives — no longer wraps.
+            result.start = 0
+            result.end   = arc2End
+            return result
+
+        case (true, true):
+            // Both arcs survive. If they now meet or overlap, the feature
+            // covers the whole (shortened) sequence.
+            if arc1Start <= arc2End {
+                result.start = 0
+                result.end   = newLength
+            } else {
+                result.start = arc1Start
+                result.end   = arc2End
+            }
+            return result
+        }
+    }
+
+    /// Adjusts this feature's coordinates after `length` bases are inserted
+    /// at position `insertAt`.
+    ///
+    /// A feature spanning the insertion point grows; one entirely downstream
+    /// slides right; one entirely upstream is unchanged. A feature whose
+    /// exclusive end sits exactly on `insertAt` does NOT grow — the new bases
+    /// land after it.
+    ///
+    /// No sequence length is needed here: applying the shift to `start` and
+    /// `end` independently is already correct for origin-wrapping features,
+    /// because their implicit boundary is the (also shifted) sequence end.
+    func adjustedForInsertion(at insertAt: Int, length: Int) -> Feature {
+        guard length > 0 else { return self }
+        var result = self
+        result.start = start >= insertAt ? start + length : start
+        result.end   = end   >  insertAt ? end   + length : end
+        return result
+    }
+}
+
+extension Array where Element == Feature {
+
+    /// Adjusts every feature after bases in `[deleteStart, deleteEnd)` are
+    /// removed, dropping any feature that no longer exists.
+    /// `sequenceLength` is the length BEFORE the deletion.
+    func shiftedForDeletion(deleteStart: Int, deleteEnd: Int, sequenceLength: Int) -> [Feature] {
+        compactMap {
+            $0.adjustedForDeletion(deleteStart: deleteStart,
+                                   deleteEnd: deleteEnd,
+                                   sequenceLength: sequenceLength)
+        }
+    }
+
+    /// Adjusts every feature after `length` bases are inserted at `insertAt`.
+    func shiftedForInsertion(at insertAt: Int, length: Int) -> [Feature] {
+        map { $0.adjustedForInsertion(at: insertAt, length: length) }
+    }
+
+    /// Convenience for edits that replace `[replaceStart, replaceEnd)` with
+    /// `insertedLength` new bases (paste or typing over a selection).
+    /// Applies the deletion first, then the insertion.
+    /// `sequenceLength` is the length BEFORE the edit.
+    func shiftedForReplacement(replaceStart: Int, replaceEnd: Int,
+                               insertedLength: Int, sequenceLength: Int) -> [Feature] {
+        shiftedForDeletion(deleteStart: replaceStart,
+                           deleteEnd: replaceEnd,
+                           sequenceLength: sequenceLength)
+            .shiftedForInsertion(at: replaceStart, length: insertedLength)
+    }
 }
 
 // MARK: - CodableColor Struct
@@ -244,34 +446,49 @@ class DNASequence: ObservableObject, Identifiable {
     
     // MARK: - Undo / Redo
     
-    private var undoStack: [String] = []
-    private var redoStack: [String] = []
+    /// One undo step. Features MUST be captured alongside the sequence string:
+    /// deleting bases shifts every downstream feature, so restoring only the
+    /// string would leave the features pointing at the wrong coordinates.
+    private struct EditSnapshot {
+        let sequence: String
+        let features: [Feature]
+    }
+
+    private var undoStack: [EditSnapshot] = []
+    private var redoStack: [EditSnapshot] = []
     private var isUndoRedoing = false
     private let maxUndoLevels = 50
-    
+
+    /// The current state, for pushing onto either stack.
+    private var currentSnapshot: EditSnapshot {
+        EditSnapshot(sequence: sequence, features: features)
+    }
+
     /// Call this BEFORE mutating the sequence to save the current state for undo.
     func registerUndo() {
         guard !isUndoRedoing else { return }
-        undoStack.append(sequence)
+        undoStack.append(currentSnapshot)
         if undoStack.count > maxUndoLevels {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
     }
-    
+
     func undo() {
         guard let previous = undoStack.popLast() else { return }
         isUndoRedoing = true
-        redoStack.append(sequence)
-        sequence = previous
+        redoStack.append(currentSnapshot)
+        sequence = previous.sequence
+        features = previous.features
         isUndoRedoing = false
     }
-    
+
     func redo() {
         guard let next = redoStack.popLast() else { return }
         isUndoRedoing = true
-        undoStack.append(sequence)
-        sequence = next
+        undoStack.append(currentSnapshot)
+        sequence = next.sequence
+        features = next.features
         isUndoRedoing = false
     }
     
@@ -386,25 +603,31 @@ class DNASequence: ObservableObject, Identifiable {
         }
         
         let codonTable = geneticCode.codonTable
+
+        // Work on a Character array indexed by integer.
+        //
+        // The previous version walked the String on every iteration: both
+        // `workingSeq.count` and `workingSeq.index(startIndex, offsetBy: i)` are
+        // O(n) on a Swift String, and both sat inside the loop. That made
+        // translation O(n²) — on a 50 kb sequence roughly 2.5 billion character
+        // steps per reading frame, and findORFs() calls this six times. Taking
+        // one O(n) snapshot up front makes the whole loop linear.
+        let bases = Array(workingSeq)
+        let baseCount = bases.count
+
         var protein = ""
-        
+        protein.reserveCapacity(max(0, (baseCount - frameOffset) / 3))
+
         // Iterate through sequence in codons (groups of 3)
         var i = frameOffset
-        while i + 2 < workingSeq.count {
-            let startIndex = workingSeq.index(workingSeq.startIndex, offsetBy: i)
-            let endIndex = workingSeq.index(startIndex, offsetBy: 3)
-            let codon = String(workingSeq[startIndex..<endIndex])
-            
-            // Translate codon to amino acid
-            if let aminoAcid = codonTable[codon] {
-                protein.append(aminoAcid)
-            } else {
-                protein.append("X") // Unknown amino acid
-            }
-            
+        while i + 2 < baseCount {
+            let codon = String(bases[i ..< (i + 3)])
+            // Unknown or ambiguous codons (anything not in the table, e.g. one
+            // containing N) translate to X, as before.
+            protein.append(codonTable[codon] ?? "X")
             i += 3
         }
-        
+
         return protein
     }
     

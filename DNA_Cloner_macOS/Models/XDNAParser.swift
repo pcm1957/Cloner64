@@ -7,9 +7,38 @@ import Foundation
 import SwiftUI
 
 final class XDNAParser {
-    
+
     // Option to automatically convert imported sequences to uppercase
     var convertToUppercaseOnImport: Bool = false
+
+    /// Problems found during the most recent parse, for the caller to show the user.
+    ///
+    /// Invalid characters used to be detected and then discarded outside a
+    /// #if DEBUG block, so a release build accepted a corrupt file in silence and
+    /// let the bad characters through into the sequence — where they affect every
+    /// downstream calculation without ever being mentioned.
+    ///
+    /// Note this differs from FASTA import, which strips unexpected characters
+    /// and is right to: position numbers and whitespace in a FASTA body line are
+    /// not corruption. XDNA is a binary format with a defined sequence block, so
+    /// anything that is not a base there is a genuine problem worth reporting.
+    ///
+    /// Cleared at the start of each parse. Read it immediately after parsing.
+    private(set) var lastImportWarnings: [String] = []
+
+    /// Describes a set of unexpected characters in a way that survives the ones
+    /// you cannot see — a stray tab or null byte would otherwise print as blank.
+    private func describe(_ characters: Set<Character>) -> String {
+        characters
+            .sorted()
+            .map { ch -> String in
+                if let ascii = ch.asciiValue, ascii < 0x20 || ascii == 0x7F {
+                    return "0x" + String(ascii, radix: 16, uppercase: true)
+                }
+                return ch == " " ? "space" : "'\(ch)'"
+            }
+            .joined(separator: ", ")
+    }
 
     // MARK: - Public API
 
@@ -77,6 +106,7 @@ final class XDNAParser {
     // MARK: - Parsing
 
     func parseXDNAData(_ data: Data, filename: String) -> DNASequence? {
+        lastImportWarnings.removeAll()   // per-parse; must not leak between files
         guard data.count >= 112 else {
             #if DEBUG
             print("❌ File too small for XDNA header")
@@ -161,10 +191,19 @@ final class XDNAParser {
             #endif
         }
 
-        // Validate but preserve case
+        // Validate but preserve case. Reported to the caller in every build, not
+        // just DEBUG — these characters stay in the sequence, so the user needs
+        // to know they are there.
         let validChars = Set("ACGTURYSWKMBDHVNacgturyswkmbdhvn")
         let invalid = Set(finalSequence.filter { !validChars.contains($0) })
         if !invalid.isEmpty {
+            let count = finalSequence.filter { !validChars.contains($0) }.count
+            lastImportWarnings.append(
+                "\(count) character\(count == 1 ? "" : "s") in this sequence "
+                + "\(count == 1 ? "is" : "are") not a valid DNA base: \(describe(invalid)). "
+                + "They have been kept as they appear in the file, but they will affect "
+                + "translation, restriction mapping and any other analysis of this sequence."
+            )
             #if DEBUG
             print("⚠️ Invalid bases found:", invalid)
             #endif
@@ -200,6 +239,7 @@ final class XDNAParser {
     // MARK: - XPRT Protein Parsing
     
     func parseXPRTData(_ data: Data, filename: String) -> ProteinSequence? {
+        lastImportWarnings.removeAll()   // per-parse; must not leak between files
         guard data.count >= 112 else {
             #if DEBUG
             print("❌ File too small for XPRT header")
@@ -245,10 +285,17 @@ final class XDNAParser {
             return nil
         }
         
-        // Validate as amino acid sequence
+        // Validate as amino acid sequence. Reported to the caller in every build.
         let validAA = Set("ACDEFGHIKLMNPQRSTVWYXBZJUOacdefghiklmnpqrstvwyxbzjuo*-")
         let invalid = Set(sequenceString.filter { !validAA.contains($0) })
         if !invalid.isEmpty {
+            let count = sequenceString.filter { !validAA.contains($0) }.count
+            lastImportWarnings.append(
+                "\(count) character\(count == 1 ? "" : "s") in this protein sequence "
+                + "\(count == 1 ? "is" : "are") not a standard amino acid code: \(describe(invalid)). "
+                + "They have been kept as they appear in the file, but they will affect "
+                + "molecular weight, pI and composition."
+            )
             #if DEBUG
             print("⚠️ Non-standard characters in protein sequence: \(invalid)")
             #endif

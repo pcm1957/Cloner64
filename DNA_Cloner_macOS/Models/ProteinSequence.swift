@@ -21,15 +21,62 @@ class ProteinSequence: ObservableObject, Identifiable {
     @Published var isDirty: Bool = false
     
     var sourceURL: URL?
-    
+
     var length: Int { sequence.count }
-    
+
+    /// While true, the dirty-tracking subscribers ignore property changes.
+    /// See markCleanAfterLoad() — do not set this directly.
+    var isLoading: Bool = false
+
+    /// Holds the Combine subscriptions that drive `isDirty`.
+    private var dirtyCancellables = Set<AnyCancellable>()
+
     init(name: String, sequence: String, isCircular: Bool = false) {
         self.name = name
         self.sequence = sequence
         self.isCircular = isCircular
+        setupDirtyTracking()
     }
-    
+
+    // MARK: - Dirty Tracking
+    //
+    // Mirrors DNASequence. Without this, `isDirty` stayed false forever, so
+    // ProteinWindowView's windowShouldClose() guard never fired and edits were
+    // discarded silently when the window closed.
+    //
+    // removeDuplicates() stops spurious same-value writes (SwiftUI text-binding
+    // re-commits, view re-mounts, parsers re-asserting existing values) from
+    // marking the protein dirty. dropFirst() ignores the initial value each
+    // publisher emits on subscribe.
+
+    private func setupDirtyTracking() {
+        $sequence.removeDuplicates().dropFirst().sink { [weak self] _ in self?.markDirtyIfNotLoading() }.store(in: &dirtyCancellables)
+        $name.removeDuplicates().dropFirst().sink { [weak self] _ in self?.markDirtyIfNotLoading() }.store(in: &dirtyCancellables)
+        $features.removeDuplicates().dropFirst().sink { [weak self] _ in self?.markDirtyIfNotLoading() }.store(in: &dirtyCancellables)
+        $description.removeDuplicates().dropFirst().sink { [weak self] _ in self?.markDirtyIfNotLoading() }.store(in: &dirtyCancellables)
+        $isCircular.removeDuplicates().dropFirst().sink { [weak self] _ in self?.markDirtyIfNotLoading() }.store(in: &dirtyCancellables)
+    }
+
+    private func markDirtyIfNotLoading() {
+        guard !isLoading else { return }
+        isDirty = true
+    }
+
+    /// Marks the protein as clean and suppresses dirty events for one run-loop
+    /// tick. Loaders should call this AFTER setting all properties from the
+    /// file — Combine delivers the load's change events asynchronously, and
+    /// without the suppression window they would immediately re-dirty a
+    /// freshly-opened file.
+    func markCleanAfterLoad() {
+        isLoading = true
+        isDirty = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.isDirty = false
+            self.isLoading = false
+        }
+    }
+
     // MARK: - Molecular Weight
     
     /// Average molecular weights of amino acids (monoisotopic residue masses)

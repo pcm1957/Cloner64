@@ -893,20 +893,44 @@ struct SequenceEditorView: View {
         let cleaned = clipText.filter { validChars.contains($0) }
         guard !cleaned.isEmpty else { return }
         sequence.registerUndo()
-        
+        // Capture the length BEFORE mutating — the feature helpers need the
+        // pre-edit length to interpret origin-wrapping features.
+        let lengthBeforeEdit = sequence.length
+
         if selectionStart < selectionEnd {
+            // Replacing a selection: delete it, then insert.
             let before = subsequence(from: 0, to: selectionStart)
             let after = subsequence(from: selectionEnd, to: sequence.length)
             sequence.sequence = before + cleaned + after
+            sequence.features = shiftFeaturesForReplace(sequence.features,
+                                                        replaceStart: selectionStart,
+                                                        replaceEnd: selectionEnd,
+                                                        insertedLength: cleaned.count,
+                                                        sequenceLength: lengthBeforeEdit)
             selectionEnd = selectionStart + cleaned.count
         } else if selectionStart > 0 && selectionStart <= sequence.length {
             let before = subsequence(from: 0, to: selectionStart)
             let after = subsequence(from: selectionStart, to: sequence.length)
             sequence.sequence = before + cleaned + after
+            sequence.features = shiftFeaturesForInsert(sequence.features,
+                                                       insertAt: selectionStart,
+                                                       length: cleaned.count)
             selectionEnd = selectionStart + cleaned.count
-        } else {
+        } else if lengthBeforeEdit == 0 {
+            // Empty sequence — the paste becomes the whole sequence.
             sequence.sequence = cleaned
+            sequence.features = []
             selectionStart = 0
+            selectionEnd = cleaned.count
+        } else {
+            // Cursor at position 0 of a NON-empty sequence. This used to fall
+            // into the branch above and overwrite the entire sequence, silently
+            // destroying it. Insert at the start instead.
+            sequence.sequence = cleaned + sequence.sequence
+            sequence.features = shiftFeaturesForInsert(sequence.features,
+                                                       insertAt: 0,
+                                                       length: cleaned.count)
+            selectionStart = cleaned.count
             selectionEnd = cleaned.count
         }
         editableSequence = sequence.sequence
@@ -915,40 +939,38 @@ struct SequenceEditorView: View {
     private func deleteSelection() {
         guard !isLocked, selectionStart < selectionEnd else { return }
         sequence.registerUndo()
+        let lengthBeforeEdit = sequence.length
         let before = subsequence(from: 0, to: selectionStart)
         let after = subsequence(from: selectionEnd, to: sequence.length)
         sequence.sequence = before + after
-        sequence.features = shiftFeatures(sequence.features, deleteStart: selectionStart, deleteEnd: selectionEnd)
+        sequence.features = shiftFeatures(sequence.features,
+                                          deleteStart: selectionStart,
+                                          deleteEnd: selectionEnd,
+                                          sequenceLength: lengthBeforeEdit)
         selectionEnd = selectionStart
         editableSequence = sequence.sequence
     }
     
     /// Shifts/removes feature coordinates after bases [deleteStart, deleteEnd) are removed.
-    private func shiftFeatures(_ features: [Feature], deleteStart: Int, deleteEnd: Int) -> [Feature] {
-        let deleteLen = deleteEnd - deleteStart
-        return features.compactMap { feature in
-            var f = feature
-            let fLo = min(f.start, f.end)
-            let fHi = max(f.start, f.end)
-            // Entirely inside deleted region — remove
-            if fLo >= deleteStart && fHi <= deleteEnd { return nil }
-            // Entirely after deletion — shift back
-            if fLo >= deleteEnd {
-                f.start = max(0, f.start - deleteLen)
-                f.end   = max(0, f.end   - deleteLen)
-                return f
-            }
-            // Entirely before deletion — no change
-            if fHi <= deleteStart { return f }
-            // Overlaps deletion boundary — trim
-            let newLo = fLo < deleteStart ? fLo : deleteStart
-            let rawHi = fHi > deleteEnd ? fHi - deleteLen : deleteStart
-            let newHi = max(newLo, rawHi)
-            f.start = f.start <= f.end ? newLo : newHi
-            f.end   = f.start <= f.end ? newHi : newLo
-            if f.start == f.end { return nil }
-            return f
-        }
+    ///
+    /// The logic now lives in Feature.adjustedForDeletion (DNASequence.swift) so
+    /// that the DNA editor, the compact editor and the protein window all share
+    /// one implementation. The old inline version reassigned `f.start` and then
+    /// re-tested `f.start <= f.end` to decide `f.end`, which flipped
+    /// reverse-strand features.
+    private func shiftFeatures(_ features: [Feature], deleteStart: Int, deleteEnd: Int, sequenceLength: Int) -> [Feature] {
+        features.shiftedForDeletion(deleteStart: deleteStart, deleteEnd: deleteEnd, sequenceLength: sequenceLength)
+    }
+
+    /// Shifts feature coordinates after `length` bases are inserted at `insertAt`.
+    private func shiftFeaturesForInsert(_ features: [Feature], insertAt: Int, length: Int) -> [Feature] {
+        features.shiftedForInsertion(at: insertAt, length: length)
+    }
+
+    /// Shifts feature coordinates when [replaceStart, replaceEnd) is replaced by
+    /// `insertedLength` new bases (paste or typing over a selection).
+    private func shiftFeaturesForReplace(_ features: [Feature], replaceStart: Int, replaceEnd: Int, insertedLength: Int, sequenceLength: Int) -> [Feature] {
+        features.shiftedForReplacement(replaceStart: replaceStart, replaceEnd: replaceEnd, insertedLength: insertedLength, sequenceLength: sequenceLength)
     }
     
     private func selectAllBases() {
@@ -1114,6 +1136,14 @@ struct SequenceTextView: View {
     // lookup instead of iterating all features for every single base every render.
     @State private var featureColorMap: [Int: Color] = [:]
 
+    /// Incremented on every rebuild request. A background build only publishes
+    /// its result if it is still the newest one — otherwise several rebuilds
+    /// triggered in quick succession race, and whichever thread happens to
+    /// finish last wins, which may be one that started from an older set of
+    /// features. That is what left scanned features uncoloured until the view
+    /// was forced to redraw.
+    @State private var featureColorMapGeneration: Int = 0
+
     private func buildFeatureColorMap() {
         let snap   = features
         let seqLen = seqString.count
@@ -1139,9 +1169,15 @@ struct SequenceTextView: View {
         }
 
         // Subsequent updates (feature edits, sequence changes): background thread.
+        featureColorMapGeneration &+= 1
+        let generation = featureColorMapGeneration
         DispatchQueue.global(qos: .userInitiated).async {
             let map = makeMap()
-            DispatchQueue.main.async { self.featureColorMap = map }
+            DispatchQueue.main.async {
+                // Discard a result that has been overtaken by a newer rebuild.
+                guard generation == self.featureColorMapGeneration else { return }
+                self.featureColorMap = map
+            }
         }
     }
     
@@ -1359,7 +1395,10 @@ struct SequenceTextView: View {
             let before = String(seqString.prefix(safeStart))
             let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeEnd)))
             sequence.sequence = before + after
-            sequence.features = shiftFeatures(sequence.features, deleteStart: safeStart, deleteEnd: safeEnd)
+            sequence.features = shiftFeatures(sequence.features,
+                                              deleteStart: safeStart,
+                                              deleteEnd: safeEnd,
+                                              sequenceLength: safeLen)
             selectionStart = safeStart
             selectionEnd   = safeStart
         } else if safeStart > 0 {
@@ -1368,34 +1407,30 @@ struct SequenceTextView: View {
             let before = String(seqString.prefix(deletePos))
             let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeStart)))
             sequence.sequence = before + after
-            sequence.features = shiftFeatures(sequence.features, deleteStart: deletePos, deleteEnd: safeStart)
+            sequence.features = shiftFeatures(sequence.features,
+                                              deleteStart: deletePos,
+                                              deleteEnd: safeStart,
+                                              sequenceLength: safeLen)
             selectionStart = deletePos
             selectionEnd   = deletePos
         }
     }
     
     /// Shifts/removes feature coordinates after bases [deleteStart, deleteEnd) are removed.
-    private func shiftFeatures(_ features: [Feature], deleteStart: Int, deleteEnd: Int) -> [Feature] {
-        let deleteLen = deleteEnd - deleteStart
-        return features.compactMap { feature in
-            var f = feature
-            let fLo = min(f.start, f.end)
-            let fHi = max(f.start, f.end)
-            if fLo >= deleteStart && fHi <= deleteEnd { return nil }
-            if fLo >= deleteEnd {
-                f.start = max(0, f.start - deleteLen)
-                f.end   = max(0, f.end   - deleteLen)
-                return f
-            }
-            if fHi <= deleteStart { return f }
-            let newLo = fLo < deleteStart ? fLo : deleteStart
-            let rawHi = fHi > deleteEnd ? fHi - deleteLen : deleteStart
-            let newHi = max(newLo, rawHi)
-            f.start = f.start <= f.end ? newLo : newHi
-            f.end   = f.start <= f.end ? newHi : newLo
-            if f.start == f.end { return nil }
-            return f
-        }
+    /// Shared implementation — see Feature.adjustedForDeletion in DNASequence.swift.
+    private func shiftFeatures(_ features: [Feature], deleteStart: Int, deleteEnd: Int, sequenceLength: Int) -> [Feature] {
+        features.shiftedForDeletion(deleteStart: deleteStart, deleteEnd: deleteEnd, sequenceLength: sequenceLength)
+    }
+
+    /// Shifts feature coordinates after `length` bases are inserted at `insertAt`.
+    private func shiftFeaturesForInsert(_ features: [Feature], insertAt: Int, length: Int) -> [Feature] {
+        features.shiftedForInsertion(at: insertAt, length: length)
+    }
+
+    /// Shifts feature coordinates when [replaceStart, replaceEnd) is replaced by
+    /// `insertedLength` new bases (paste or typing over a selection).
+    private func shiftFeaturesForReplace(_ features: [Feature], replaceStart: Int, replaceEnd: Int, insertedLength: Int, sequenceLength: Int) -> [Feature] {
+        features.shiftedForReplacement(replaceStart: replaceStart, replaceEnd: replaceEnd, insertedLength: insertedLength, sequenceLength: sequenceLength)
     }
     
     private func doPaste() {
@@ -1405,12 +1440,21 @@ struct SequenceTextView: View {
         let cleaned = clip.filter { valid.contains($0) }
         guard !cleaned.isEmpty else { return }
         sequence.registerUndo()
+        let lengthBeforeEdit = seqString.count
+        let safeEnd = min(selectionEnd, lengthBeforeEdit)
         let before = String(seqString.prefix(selectionStart))
-        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: min(selectionEnd, seqString.count))))
+        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeEnd)))
         sequence.sequence = before + cleaned + after
+        // Keep features aligned. When there is no selection safeEnd == selectionStart,
+        // so the deletion half is a no-op and this is a pure insertion.
+        sequence.features = shiftFeaturesForReplace(sequence.features,
+                                                    replaceStart: selectionStart,
+                                                    replaceEnd: safeEnd,
+                                                    insertedLength: cleaned.count,
+                                                    sequenceLength: lengthBeforeEdit)
         selectionEnd = selectionStart + cleaned.count
     }
-    
+
     private func doMakeUppercase() {
         guard !isLocked else { showLockedWarning = true; return }
         guard selectionStart < selectionEnd, selectionEnd <= seqString.count else { return }
@@ -1450,9 +1494,17 @@ struct SequenceTextView: View {
         
         // If there's a selection, replace it; otherwise insert at cursor
         let insertPos = selectionStart
+        let lengthBeforeEdit = seqString.count
+        let safeEnd = min(selectionEnd, lengthBeforeEdit)
         let before = String(seqString.prefix(selectionStart))
-        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: min(selectionEnd, seqString.count))))
+        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeEnd)))
         sequence.sequence = before + cleaned + after
+        // Keep features aligned with the edited sequence.
+        sequence.features = shiftFeaturesForReplace(sequence.features,
+                                                    replaceStart: insertPos,
+                                                    replaceEnd: safeEnd,
+                                                    insertedLength: cleaned.count,
+                                                    sequenceLength: lengthBeforeEdit)
         // Move cursor to after the inserted text
         selectionStart = insertPos + cleaned.count
         selectionEnd = selectionStart
@@ -1941,20 +1993,13 @@ struct SelectionInfoView: View {
     }
     
     /// Tm using Serial Cloner's 3-tier formula from manual
+    /// Delegates to MeltingTemperature (DNASequence.swift), the single
+    /// implementation. The inline version this replaces used a bare
+    /// log10(naConcentration) with no clamp — harmless while the concentration
+    /// is a hard-coded 0.050, but an infinite Tm the moment anyone makes it
+    /// editable, as it already is in Primer Design and PCR Simulation.
     private var tm: Double {
-        let gc = gCount + cCount
-        let at = aCount + tCount
-        let total = gc + at
-        guard total > 0 else { return 0 }
-        let logNa = log10(naConcentration)
-        
-        if total < 14 {
-            return Double(at * 2 + gc * 4) - 16.6 * log10(0.050) + 16.6 * logNa
-        } else if total <= 51 {
-            return 100.5 + 41.0 * Double(gc) / Double(total) - 820.0 / Double(total) + 16.6 * logNa
-        } else {
-            return 81.5 + 41.0 * Double(gc) / Double(total) - 500.0 / Double(total) + 16.6 * logNa
-        }
+        MeltingTemperature.celsius(for: upperSeq, sodiumMolar: naConcentration)
     }
     
     private var dnaForTranslation: String {

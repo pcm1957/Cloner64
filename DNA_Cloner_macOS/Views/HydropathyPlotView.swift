@@ -55,6 +55,9 @@ struct HydropathyPlotView: View {
     @ObservedObject var protein: ProteinSequence
     
     @State private var windowSize: Int = 9
+    /// Cursor x within the plot, or nil when the pointer is elsewhere.
+    /// Drives the crosshair and residue-number readout.
+    @State private var hoverX: CGFloat? = nil
     @State private var showThreshold: Bool = true
     @State private var customThreshold: Double = 1.6
     @State private var plotFontSize: CGFloat = 11
@@ -85,7 +88,7 @@ struct HydropathyPlotView: View {
                     Spacer()
                 }
             } else {
-                plotView
+                plotView()
             }
             
             Divider()
@@ -159,7 +162,12 @@ struct HydropathyPlotView: View {
     
     // MARK: - Plot
     
-    private var plotView: some View {
+    /// The plot.
+    ///
+    /// `showCursor` is false when rendering for print, PNG or PDF export: that
+    /// path reuses this same view, and a crosshair frozen wherever the pointer
+    /// happened to be would otherwise be baked into the exported image.
+    private func plotView(showCursor: Bool = true) -> some View {
         GeometryReader { _ in
             let data = hydropathyData
             
@@ -328,6 +336,70 @@ struct HydropathyPlotView: View {
                 border.addRect(CGRect(x: padding.leading, y: padding.top,
                                       width: plotW, height: plotH))
                 context.stroke(border, with: .color(.gray.opacity(0.4)), lineWidth: 0.5)
+
+                // MARK: Cursor readout
+                //
+                // Drawn last so it sits above the curve and the fills.
+                //
+                // Note the index-to-residue mapping. hydropathyValues starts its
+                // window at halfWindow, so data index 0 is the residue at
+                // halfWindow — with the default window of 9, data[0] is residue 5,
+                // not residue 1. The x-axis ticks already use i + halfWin + 1, and
+                // this must agree with them or the crosshair would disagree with
+                // the axis directly beneath it.
+                if showCursor, let hx = hoverX, plotW > 0 {
+                    let frac = (hx - padding.leading) / plotW
+                    let idx = Int((frac * CGFloat(max(1, n - 1))).rounded())
+
+                    if idx >= 0, idx < n {
+                        let halfWin = windowSize / 2
+                        let residueNumber = idx + halfWin + 1     // 1-based
+                        let value = data[idx]
+                        let x = xPos(idx)
+                        let y = yPos(value)
+
+                        // Vertical crosshair
+                        var cross = Path()
+                        cross.move(to: CGPoint(x: x, y: padding.top))
+                        cross.addLine(to: CGPoint(x: x, y: padding.top + plotH))
+                        context.stroke(cross, with: .color(.secondary.opacity(0.5)),
+                                       style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+
+                        // Point marker
+                        context.fill(
+                            Path(ellipseIn: CGRect(x: x - 3, y: y - 3, width: 6, height: 6)),
+                            with: .color(.blue)
+                        )
+
+                        // Readout: residue number, the residue letter if we can
+                        // find it, and the smoothed hydropathy at that point.
+                        let residues = Array(protein.sequence.uppercased())
+                        let letterIndex = residueNumber - 1
+                        let letter = (letterIndex >= 0 && letterIndex < residues.count)
+                            ? String(residues[letterIndex]) : ""
+                        let label = letter.isEmpty
+                            ? String(format: "%d   %.2f", residueNumber, value)
+                            : String(format: "%d %@   %.2f", residueNumber, letter, value)
+
+                        // Keep the label inside the plot when near the right edge.
+                        let labelWidth: CGFloat = 96
+                        let flip = (x + labelWidth) > (padding.leading + plotW)
+                        let labelX = flip ? x - labelWidth / 2 - 6 : x + labelWidth / 2 + 6
+
+                        context.draw(
+                            Text(label)
+                                .font(.system(size: plotFontSize + 1, weight: .medium))
+                                .foregroundColor(.primary),
+                            at: CGPoint(x: labelX, y: padding.top + 10)
+                        )
+                    }
+                }
+            }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let point): hoverX = point.x
+                case .ended:             hoverX = nil
+                }
             }
         }
         .padding(4)
@@ -419,7 +491,7 @@ struct HydropathyPlotView: View {
             Divider()
             controlsBar
             Divider()
-            plotView
+            plotView(showCursor: false)   // no crosshair in exported images
             Divider()
             footerBar
         }
@@ -532,10 +604,10 @@ class HydropathyPlotWindowManager {
         
         windows.append(window)
         
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window, queue: .main
-        ) { [weak self] _ in
+        // Self-removing observer — see observeWindowClose in
+        // GraphicalMapWindowManager.swift. Without removal the handler, and the
+        // plot window it captures, would never be released.
+        observeWindowClose(window) { [weak self] in
             self?.windows.removeAll { $0 == window }
         }
     }

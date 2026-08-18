@@ -189,11 +189,21 @@ struct RestrictionEnzymeListView: View {
                 .fontDesign(.monospaced)
                 .frame(width: 130, alignment: .leading)
             
-            Text("\(enzyme.cutPosition5Prime)")
+            // Cut positions are stored as offsets from the START of the
+            // recognition site. For an enzyme that cuts outside its site
+            // (Type IIS) those offsets run past the site — BsaI is stored as
+            // 7 and 11 — whereas REBASE and the supplier catalogues write it
+            // GGTCTC(1/5), counting from the END of the site. Show the
+            // catalogue form for those, so the table matches the bottle.
+            Text(enzyme.cutsOutsideSite
+                 ? "+\(enzyme.cutPosition5Prime - enzyme.siteLength)"
+                 : "\(enzyme.cutPosition5Prime)")
                 .fontDesign(.monospaced)
                 .frame(width: 50, alignment: .center)
-            
-            Text("\(enzyme.cutPosition3Prime)")
+
+            Text(enzyme.cutsOutsideSite
+                 ? "+\(enzyme.cutPosition3Prime - enzyme.siteLength)"
+                 : "\(enzyme.cutPosition3Prime)")
                 .fontDesign(.monospaced)
                 .frame(width: 50, alignment: .center)
             
@@ -318,8 +328,18 @@ struct EnzymeEditSheet: View {
                         name: name, recognitionSite: recognitionSite.uppercased(),
                         cutPosition5Prime: Int(cut5)!, cutPosition3Prime: Int(cut3)!,
                         overhangType: overhangType)
-                    Text("Overhang sequence: \(preview.overhangSequence.isEmpty ? "none (blunt)" : preview.overhangSequence)")
-                        .font(.caption).foregroundColor(.secondary).fontDesign(.monospaced)
+                    // A Type IIS enzyme cuts outside its recognition site, so its
+                    // overhang depends on the target and cannot be previewed here.
+                    // Without this branch the preview just said "none (blunt)",
+                    // which is wrong and misleading for a sticky-end enzyme.
+                    if preview.cutsOutsideSite {
+                        Text("Cuts outside the recognition site (Type IIS) — "
+                             + "\(preview.overhangLength)-base overhang, sequence depends on the target")
+                            .font(.caption).foregroundColor(.secondary)
+                    } else {
+                        Text("Overhang sequence: \(preview.overhangSequence.isEmpty ? "none (blunt)" : preview.overhangSequence)")
+                            .font(.caption).foregroundColor(.secondary).fontDesign(.monospaced)
+                    }
                 }
             }
             

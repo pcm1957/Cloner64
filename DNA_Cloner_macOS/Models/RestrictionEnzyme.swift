@@ -39,30 +39,64 @@ struct RestrictionEnzyme: Identifiable, Codable {
         }
     }
     
-    /// The single-stranded overhang sequence produced by this enzyme.
-    /// For 5' overhangs: the exposed 5'→3' sequence between cut5 and cut3.
-    /// For 3' overhangs: the exposed sequence between cut3 and cut5.
-    /// Empty string for blunt cutters.
+    // MARK: - Site geometry
+
+    /// Number of bases in the recognition site.
+    var siteLength: Int { recognitionSite.count }
+
+    /// Length of the single-stranded overhang, in bases. 0 for blunt cutters.
+    var overhangLength: Int { abs(cutPosition3Prime - cutPosition5Prime) }
+
+    /// True when the enzyme cuts OUTSIDE its recognition site (Type IIS, e.g.
+    /// BsaI GGTCTC(1/5), BbsI GAAGAC(2/6), SapI GCTCTTC(1/4)).
+    ///
+    /// Cut positions are stored as offsets from the start of the recognition
+    /// site, so a Type IIS enzyme has offsets beyond `siteLength`. These
+    /// enzymes' overhangs are whatever the target sequence happens to be at the
+    /// cut, so the overhang CANNOT be derived from the recognition site —
+    /// use `CutSite.overhang(in:circular:)` instead.
+    var cutsOutsideSite: Bool {
+        cutPosition5Prime > siteLength || cutPosition3Prime > siteLength
+            || cutPosition5Prime < 0 || cutPosition3Prime < 0
+    }
+
+    /// True when the recognition site reads the same on both strands, so a
+    /// forward-strand search already finds every occurrence.
+    var isPalindromic: Bool {
+        recognitionSite == RestrictionEnzyme.iupacReverseComplement(recognitionSite)
+    }
+
+    /// The fixed single-stranded overhang produced by this enzyme, read 5'→3'
+    /// on the top strand, for enzymes that cut WITHIN their recognition site.
+    ///
+    /// Returns "" for blunt cutters and for Type IIS enzymes — the latter have
+    /// no fixed overhang, so returning a recognition-site slice would be a
+    /// fabrication. Callers that need a Type IIS overhang must read it from the
+    /// target sequence via `CutSite.overhang(in:circular:)`.
     var overhangSequence: String {
-        let site = recognitionSite
-        switch overhangType {
-        case .blunt:
-            return ""
-        case .sticky5Prime:
-            let lo = min(cutPosition5Prime, cutPosition3Prime)
-            let hi = max(cutPosition5Prime, cutPosition3Prime)
-            guard lo >= 0 && hi <= site.count else { return "" }
-            let start = site.index(site.startIndex, offsetBy: lo)
-            let end = site.index(site.startIndex, offsetBy: hi)
-            return String(site[start..<end])
-        case .sticky3Prime:
-            let lo = min(cutPosition5Prime, cutPosition3Prime)
-            let hi = max(cutPosition5Prime, cutPosition3Prime)
-            guard lo >= 0 && hi <= site.count else { return "" }
-            let start = site.index(site.startIndex, offsetBy: lo)
-            let end = site.index(site.startIndex, offsetBy: hi)
-            return String(site[start..<end])
-        }
+        guard overhangType != .blunt else { return "" }
+        guard !cutsOutsideSite else { return "" }
+
+        let site = Array(recognitionSite)
+        let lo = min(cutPosition5Prime, cutPosition3Prime)
+        let hi = max(cutPosition5Prime, cutPosition3Prime)
+        guard lo >= 0, hi <= site.count, lo < hi else { return "" }
+        return String(site[lo..<hi])
+    }
+
+    /// Whether two enzymes leave ligatable ends.
+    ///
+    /// Type IIS enzymes are deliberately excluded: their overhangs depend on
+    /// the target sequence, so "are these two enzymes compatible?" has no
+    /// answer in the abstract. Previously both `overhangSequence` values were
+    /// empty strings, which made every Type IIS pair compare as compatible.
+    func producesEndsCompatible(with other: RestrictionEnzyme) -> Bool {
+        if overhangType == .blunt && other.overhangType == .blunt { return true }
+        guard overhangType == other.overhangType else { return false }
+        guard !cutsOutsideSite, !other.cutsOutsideSite else { return false }
+        let a = overhangSequence
+        guard !a.isEmpty else { return false }
+        return a == other.overhangSequence
     }
     
     // Find all cut sites in a sequence.
@@ -70,51 +104,130 @@ struct RestrictionEnzyme: Identifiable, Codable {
     // the origin (e.g. "…CCC|GGG…" for SmaI on a circular plasmid).
     func findCutSites(in sequence: String, circular: Bool = false) -> [CutSite] {
         var sites: [CutSite] = []
-        let seq = sequence.uppercased()
-        let seqLen = seq.count
-        let seqArray = Array(seq)
-        let pattern = recognitionSite
+        let seqArray = Array(sequence.uppercased())
+        let seqLen = seqArray.count
+        let pattern = Array(recognitionSite)
         let patLen = pattern.count
-        
+
+        guard patLen > 0, seqLen > 0 else { return [] }
+
         // For circular sequences, append the first (patLen-1) bases so that
-        // recognition sites spanning the origin are found.  Only keep hits
-        // whose start position falls within the original sequence length.
-        let searchSeq: String
+        // recognition sites spanning the origin are found. Only hits whose
+        // start position falls within the original length are kept.
+        var searchArray = seqArray
         if circular && seqLen >= patLen {
-            searchSeq = seq + String(seq.prefix(patLen - 1))
-        } else {
-            searchSeq = seq
+            searchArray.append(contentsOf: seqArray.prefix(patLen - 1))
         }
-        
-        // Search forward strand
-        var searchStart = 0
-        while let range = searchSeq.range(of: pattern,
-                    range: searchSeq.index(searchSeq.startIndex, offsetBy: searchStart)..<searchSeq.endIndex) {
-            let position = searchSeq.distance(from: searchSeq.startIndex, to: range.lowerBound)
-            if position < seqLen {
-                let warning = checkMethylationOverlap(seqArray: seqArray, seqLen: seqLen, at: position, siteLength: patLen, circular: circular)
-                sites.append(CutSite(enzyme: self, position: position, strand: .forward, methylationWarning: warning))
-            }
-            searchStart = position + 1
-        }
-        
-        // Search reverse strand (using reverse complement of recognition site)
-        let reversePattern = reverseComplement(pattern)
-        // Skip reverse search for palindromic sites — forward search already found them
-        if reversePattern != pattern {
-            searchStart = 0
-            while let range = searchSeq.range(of: reversePattern,
-                        range: searchSeq.index(searchSeq.startIndex, offsetBy: searchStart)..<searchSeq.endIndex) {
-                let position = searchSeq.distance(from: searchSeq.startIndex, to: range.lowerBound)
-                if position < seqLen {
-                    let warning = checkMethylationOverlap(seqArray: seqArray, seqLen: seqLen, at: position, siteLength: patLen, circular: circular)
-                    sites.append(CutSite(enzyme: self, position: position, strand: .reverse, methylationWarning: warning))
+        let searchLen = searchArray.count
+        guard searchLen >= patLen else { return [] }
+
+        // Matching is IUPAC-aware: a pattern base like N, R or W matches any of
+        // the bases it stands for. The previous implementation used a literal
+        // String.range(of:) search, so degenerate sites such as HinfI's GANTC
+        // silently matched nothing at all.
+        //
+        // Scanning an Array<Character> by integer index also removes the
+        // repeated String.index(offsetBy:) walk, which made the old search
+        // quadratic in sequence length.
+        func matches(_ pattern: [Character], at offset: Int) -> Bool {
+            for k in 0..<pattern.count {
+                if !RestrictionEnzyme.iupacMatches(patternBase: pattern[k],
+                                                   targetBase: searchArray[offset + k]) {
+                    return false
                 }
-                searchStart = position + 1
+            }
+            return true
+        }
+
+        /// A Type IIS enzyme cuts some distance beyond its recognition site. On
+        /// a LINEAR molecule a site close to either end is recognised but
+        /// cannot be cut — there is no DNA there to cut into. Such a site must
+        /// not be reported, both because it is not really a cut site and
+        /// because a cut coordinate past the end of the sequence would feed an
+        /// out-of-range value into the fragment-size calculations.
+        /// Circular sequences always have DNA on both sides, so nothing is
+        /// dropped there.
+        func cutIsUsable(_ site: CutSite) -> Bool {
+            site.cutIsWithinBounds(sequenceLength: seqLen, circular: circular)
+        }
+
+        // Forward strand
+        for position in 0...(searchLen - patLen) where position < seqLen {
+            if matches(pattern, at: position) {
+                let warning = checkMethylationOverlap(seqArray: seqArray, seqLen: seqLen,
+                                                      at: position, siteLength: patLen,
+                                                      circular: circular)
+                let site = CutSite(enzyme: self, position: position,
+                                   strand: .forward, methylationWarning: warning)
+                if cutIsUsable(site) { sites.append(site) }
             }
         }
-        
+
+        // Reverse strand. Skipped for palindromic sites, which the forward
+        // search has already found.
+        let reversePattern = Array(RestrictionEnzyme.iupacReverseComplement(recognitionSite))
+        if reversePattern != pattern {
+            for position in 0...(searchLen - patLen) where position < seqLen {
+                if matches(reversePattern, at: position) {
+                    let warning = checkMethylationOverlap(seqArray: seqArray, seqLen: seqLen,
+                                                          at: position, siteLength: patLen,
+                                                          circular: circular)
+                    let site = CutSite(enzyme: self, position: position,
+                                       strand: .reverse, methylationWarning: warning)
+                    if cutIsUsable(site) { sites.append(site) }
+                }
+            }
+        }
+
         return sites.sorted { $0.position < $1.position }
+    }
+
+    // MARK: - IUPAC ambiguity handling
+
+    /// Which concrete bases each IUPAC code stands for.
+    static let iupacExpansion: [Character: Set<Character>] = [
+        "A": ["A"], "C": ["C"], "G": ["G"], "T": ["T"], "U": ["T"],
+        "R": ["A", "G"],           // puRine
+        "Y": ["C", "T"],           // pYrimidine
+        "S": ["G", "C"],           // Strong (3 H-bonds)
+        "W": ["A", "T"],           // Weak (2 H-bonds)
+        "K": ["G", "T"],           // Keto
+        "M": ["A", "C"],           // aMino
+        "B": ["C", "G", "T"],      // not A
+        "D": ["A", "G", "T"],      // not C
+        "H": ["A", "C", "T"],      // not G
+        "V": ["A", "C", "G"],      // not T
+        "N": ["A", "C", "G", "T"]  // aNy
+    ]
+
+    /// Does a recognition-site base match a base in the target sequence?
+    ///
+    /// An ambiguous base in the TARGET only matches an identical code, never a
+    /// concrete base — an N in the user's sequence means "unknown", so treating
+    /// it as a definite match would invent restriction sites that may not exist.
+    static func iupacMatches(patternBase: Character, targetBase: Character) -> Bool {
+        if patternBase == targetBase { return true }
+        guard let allowed = iupacExpansion[patternBase] else { return false }
+        // Normalise U to T so RNA-style sequences still match.
+        let target: Character = (targetBase == "U") ? "T" : targetBase
+        guard let targetSet = iupacExpansion[target], targetSet.count == 1,
+              let concrete = targetSet.first else { return false }
+        return allowed.contains(concrete)
+    }
+
+    /// Reverse complement that understands the full IUPAC alphabet. The old
+    /// local helper mapped only A/C/G/T/N and passed everything else through
+    /// unchanged, which produced wrong reverse-strand patterns for any
+    /// degenerate site.
+    static func iupacReverseComplement(_ seq: String) -> String {
+        let complement: [Character: Character] = [
+            "A": "T", "T": "A", "G": "C", "C": "G", "U": "A",
+            "R": "Y", "Y": "R", "S": "S", "W": "W",
+            "K": "M", "M": "K",
+            "B": "V", "V": "B", "D": "H", "H": "D",
+            "N": "N"
+        ]
+        return String(seq.uppercased().reversed().map { complement[$0] ?? $0 })
     }
     
     /// Check whether dam (GATC), dcm (CCAGG/CCTGG), or CpG (CG) methylation
@@ -194,25 +307,150 @@ struct RestrictionEnzyme: Identifiable, Codable {
         return warnings.joined(separator: "; ")
     }
     
-    private func reverseComplement(_ seq: String) -> String {
-        let complement: [Character: Character] = ["A": "T", "T": "A", "G": "C", "C": "G", "N": "N"]
-        return String(seq.reversed().map { complement[$0] ?? $0 })
-    }
+    // The old private reverseComplement() lived here. It mapped only A/C/G/T/N
+    // and passed any other letter through unchanged, so degenerate sites got a
+    // wrong reverse-strand pattern. Replaced by the static
+    // RestrictionEnzyme.iupacReverseComplement(_:) above.
 }
 
 struct CutSite: Identifiable {
     let id = UUID()
     let enzyme: RestrictionEnzyme
+    /// Start of the recognition site on the top strand (0-based).
+    /// This is what the graphical map and site lists label, even for Type IIS
+    /// enzymes whose actual cut lies elsewhere.
     let position: Int
     let strand: Strand
     let methylationWarning: String
-    
+
+    /// Where the enzyme cuts the TOP strand, as a 0-based coordinate.
+    ///
+    /// For a reverse-strand hit the enzyme reads the bottom strand, so its cut
+    /// offsets run leftward in top-strand coordinates and the two strands swap
+    /// roles. An enzyme-frame offset `c` maps to top-strand coordinate
+    /// `position + siteLength - c`.
+    ///
+    /// This matters only for non-palindromic enzymes, because palindromic sites
+    /// are never reported on the reverse strand (the forward search finds them
+    /// all). In practice that means the Type IIS enzymes and I-SceI.
     var cutPosition5Prime: Int {
-        position + enzyme.cutPosition5Prime
+        switch strand {
+        case .forward:
+            return position + enzyme.cutPosition5Prime
+        case .reverse:
+            return position + enzyme.siteLength - enzyme.cutPosition3Prime
+        }
     }
-    
+
+    /// Where the enzyme cuts the BOTTOM strand, as a 0-based top-strand coordinate.
     var cutPosition3Prime: Int {
-        position + enzyme.cutPosition3Prime
+        switch strand {
+        case .forward:
+            return position + enzyme.cutPosition3Prime
+        case .reverse:
+            return position + enzyme.siteLength - enzyme.cutPosition5Prime
+        }
+    }
+
+    /// True when the cut falls outside the sequence bounds. Type IIS sites near
+    /// either end of a LINEAR sequence are recognised but not cut, because the
+    /// enzyme needs flanking DNA to cut into.
+    func cutIsWithinBounds(sequenceLength: Int, circular: Bool) -> Bool {
+        if circular { return true }
+        let lo = min(cutPosition5Prime, cutPosition3Prime)
+        let hi = max(cutPosition5Prime, cutPosition3Prime)
+        return lo >= 0 && hi <= sequenceLength
+    }
+
+    /// The single-stranded overhang this cut actually produces, read 5'→3' on
+    /// the top strand, taken from the real target sequence.
+    ///
+    /// This is the only correct way to get a Type IIS overhang, since those
+    /// enzymes cut into whatever sequence lies beyond their recognition site.
+    /// Returns "" for blunt cuts, or when the cut runs off the end of a linear
+    /// sequence.
+    func overhang(in sequence: String, circular: Bool) -> String {
+        guard enzyme.overhangType != .blunt else { return "" }
+        let bases = Array(sequence.uppercased())
+        let seqLen = bases.count
+        guard seqLen > 0 else { return "" }
+
+        let lo = min(cutPosition5Prime, cutPosition3Prime)
+        let hi = max(cutPosition5Prime, cutPosition3Prime)
+        guard hi > lo else { return "" }
+
+        if circular {
+            return String((lo..<hi).map { bases[(($0 % seqLen) + seqLen) % seqLen] })
+        }
+        guard lo >= 0, hi <= seqLen else { return "" }
+        return String(bases[lo..<hi])
+    }
+}
+
+// MARK: - Digest fragment sizes
+
+/// The single implementation of "what fragments does this digest produce?".
+///
+/// This calculation previously existed in four places — ConstructCheckAnalyzer,
+/// DigestVerificationAnalyzer, SiteUsageView and VirtualCutterView — and the
+/// copies had drifted apart. The two analyzers computed a circular fragment as
+/// `dist == 0 ? seqLen : dist`, which is right for a single cut (one break
+/// linearises a plasmid, giving one full-length fragment) but wrong when two
+/// enzymes cut the SAME base: each coincident pair produced a spurious extra
+/// full-length band. That is reachable in ordinary use — MspI and HpaII both cut
+/// CCGG at the same offset, as do other isoschizomer pairs — so a double digest
+/// with such a pair reported bands that do not exist.
+///
+/// The behaviour below matches what the two views already did, which is correct,
+/// so Site Usage and Virtual Cutter are unaffected by the consolidation.
+enum DigestCalculator {
+
+    /// Fragment lengths produced by cutting a molecule at the given positions.
+    ///
+    /// - Parameters:
+    ///   - cutPositions: top-strand cut coordinates, 0-based. Duplicates are
+    ///     expected and handled — two enzymes cutting the same base make one
+    ///     break, not two. Values outside the sequence are wrapped into range.
+    ///   - sequenceLength: length of the molecule in bp.
+    ///   - circular: true for a plasmid, false for a linear fragment.
+    /// - Returns: fragment lengths in cut order, unsorted, with zero-length
+    ///   fragments omitted. Callers that want a gel-style list sort descending.
+    static func fragmentSizes(cutPositions: [Int],
+                              sequenceLength: Int,
+                              circular: Bool) -> [Int] {
+        guard sequenceLength > 0 else { return [] }
+
+        // Wrap into range, then collapse coincident cuts.
+        let cuts = Set(cutPositions.map {
+            (($0 % sequenceLength) + sequenceLength) % sequenceLength
+        }).sorted()
+
+        // Uncut molecule.
+        guard !cuts.isEmpty else { return [sequenceLength] }
+
+        var fragments: [Int] = []
+
+        if circular {
+            // A single break turns the circle into one full-length linear piece.
+            if cuts.count == 1 { return [sequenceLength] }
+            for i in 0 ..< cuts.count {
+                let next = (i + 1) % cuts.count
+                let size = (cuts[next] - cuts[i] + sequenceLength) % sequenceLength
+                if size > 0 { fragments.append(size) }
+            }
+        } else {
+            // Piece before the first cut, pieces between cuts, piece after the last.
+            if cuts[0] > 0 { fragments.append(cuts[0]) }
+            for i in 0 ..< (cuts.count - 1) {
+                let size = cuts[i + 1] - cuts[i]
+                if size > 0 { fragments.append(size) }
+            }
+            if let last = cuts.last, last < sequenceLength {
+                fragments.append(sequenceLength - last)
+            }
+        }
+
+        return fragments
     }
 }
 
@@ -277,8 +515,15 @@ class RestrictionEnzymeDatabase: ObservableObject {
     /// All blunt cutters form one group. Sticky cutters are grouped by overhang type + sequence.
     func compatibleEndGroups() -> [(overhang: String, type: RestrictionEnzyme.OverhangType, enzymes: [RestrictionEnzyme])] {
         var groups: [String: (type: RestrictionEnzyme.OverhangType, enzymes: [RestrictionEnzyme])] = [:]
-        
+
         for enzyme in enzymes {
+            // Type IIS enzymes have no fixed overhang — it depends on the
+            // sequence they happen to cut into — so they cannot belong to a
+            // fixed compatibility group. Previously their overhangSequence was
+            // an empty string, which lumped BsaI, BsmBI, BbsI and SapI into one
+            // bogus "compatible" group.
+            if enzyme.cutsOutsideSite { continue }
+
             let key: String
             switch enzyme.overhangType {
             case .blunt:
@@ -379,9 +624,21 @@ class RestrictionEnzymeDatabase: ObservableObject {
             RestrictionEnzyme(name: "PciI/PscI", recognitionSite: "ACATGT", cutPosition5Prime: 1, cutPosition3Prime: 5, overhangType: .sticky5Prime),
             
             // TYPE IIS ENZYMES (for Golden Gate cloning)
-            RestrictionEnzyme(name: "BsaI", recognitionSite: "GGTCTC", cutPosition5Prime: 1, cutPosition3Prime: 5, overhangType: .sticky5Prime, methylationSensitivity: "dcm impaired (partial overlap)"),
-            RestrictionEnzyme(name: "BsmBI", recognitionSite: "CGTCTC", cutPosition5Prime: 1, cutPosition3Prime: 5, overhangType: .sticky5Prime, methylationSensitivity: "CpG blocked"),
-            RestrictionEnzyme(name: "BbsI", recognitionSite: "GAAGAC", cutPosition5Prime: 2, cutPosition3Prime: 6, overhangType: .sticky5Prime),
+            //
+            // These cut OUTSIDE their recognition site. REBASE writes BsaI as
+            // GGTCTC(1/5), meaning the top strand is cut 1 base past the 6-base
+            // site and the bottom strand 5 bases past it. Because this app
+            // stores cut positions as offsets from the START of the site, those
+            // become 6+1=7 and 6+5=11.
+            //
+            // They were previously stored as the raw REBASE numbers (1 and 5),
+            // which placed the cut inside the recognition site — the same
+            // geometry as EcoRI. That made every Type IIS fragment size and
+            // overhang wrong. The 4-base overhang these leave is sequence-
+            // dependent, so it is read from the target via CutSite.overhang().
+            RestrictionEnzyme(name: "BsaI", recognitionSite: "GGTCTC", cutPosition5Prime: 7, cutPosition3Prime: 11, overhangType: .sticky5Prime, methylationSensitivity: "dcm impaired (partial overlap)"),
+            RestrictionEnzyme(name: "BsmBI", recognitionSite: "CGTCTC", cutPosition5Prime: 7, cutPosition3Prime: 11, overhangType: .sticky5Prime, methylationSensitivity: "CpG blocked"),
+            RestrictionEnzyme(name: "BbsI", recognitionSite: "GAAGAC", cutPosition5Prime: 8, cutPosition3Prime: 12, overhangType: .sticky5Prime),
             
             // MORE 8-BASE RARE CUTTERS
             RestrictionEnzyme(name: "FseI", recognitionSite: "GGCCGGCC", cutPosition5Prime: 6, cutPosition3Prime: 2, overhangType: .sticky3Prime, methylationSensitivity: "CpG blocked"),
@@ -455,11 +712,12 @@ class RestrictionEnzymeDatabase: ObservableObject {
             RestrictionEnzyme(name: "SrfI", recognitionSite: "GCCCGGGC", cutPosition5Prime: 4, cutPosition3Prime: 4, overhangType: .blunt, methylationSensitivity: "CpG blocked"),
             
             // ADDITIONAL TYPE IIS ENZYME
-            // SapI is widely used for Golden Gate assembly and tRNA-based expression
-            // systems.  Like BsaI/BsmBI it cuts outside its recognition site; cut
-            // positions here are stored as placeholders (consistent with the convention
-            // used for BsaI/BsmBI) and represent a 3-base 5' overhang.
-            RestrictionEnzyme(name: "SapI", recognitionSite: "GCTCTTC", cutPosition5Prime: 1, cutPosition3Prime: 4, overhangType: .sticky5Prime),
+            // SapI is GCTCTTC(1/4): a 7-base site, top strand cut 1 base past it
+            // and bottom strand 4 bases past it, leaving a 3-base 5' overhang.
+            // As offsets from the site start that is 7+1=8 and 7+4=11.
+            // (These were previously stored as the literal 1 and 4 — the old
+            // comment described them as placeholders.)
+            RestrictionEnzyme(name: "SapI", recognitionSite: "GCTCTTC", cutPosition5Prime: 8, cutPosition3Prime: 11, overhangType: .sticky5Prime),
             
         ]
     }

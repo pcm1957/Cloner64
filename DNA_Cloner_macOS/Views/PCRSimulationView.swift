@@ -1215,28 +1215,16 @@ struct PCRSimulationView: View {
     
     // MARK: - Tm Calculation (Serial Cloner 3-tier formula)
     
+    /// Delegates to MeltingTemperature (DNASequence.swift), the single
+    /// implementation of the Serial Cloner three-tier formula. Behaviour is
+    /// unchanged — this copy was already correct, including the salt-term clamp
+    /// that the third copy in SequenceEditorView had lost.
+    ///
+    /// The default still falls back to this view's own salt field when no
+    /// concentration is passed.
     private func calculateTm(_ primer: String, naM: Double? = nil) -> Double {
-        var gc = 0, at = 0
-        for ch in primer.uppercased() {
-            switch ch {
-            case "G", "C": gc += 1
-            case "A", "T": at += 1
-            default: break
-            }
-        }
-        let total = gc + at
-        guard total > 0 else { return 0 }
-        
-        let naConc = naM ?? (saltConc / 1000.0)
-        let logNa = log10(max(naConc, 0.001))
-        
-        if total < 14 {
-            return Double(at * 2 + gc * 4) - 16.6 * log10(0.050) + 16.6 * logNa
-        } else if total <= 51 {
-            return 100.5 + 41.0 * Double(gc) / Double(total) - 820.0 / Double(total) + 16.6 * logNa
-        } else {
-            return 81.5 + 41.0 * Double(gc) / Double(total) - 500.0 / Double(total) + 16.6 * logNa
-        }
+        MeltingTemperature.celsius(for: primer,
+                                   sodiumMolar: naM ?? (saltConc / 1000.0))
     }
     
     

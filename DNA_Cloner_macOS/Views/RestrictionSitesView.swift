@@ -12,6 +12,10 @@ struct RestrictionSitesView: View {
     @State private var showOnlySingleCutters = false
     @State private var showOnlyNonCutters = false
     @State private var cutSites: [String: [CutSite]] = [:]
+    /// Identifies the most recent scan, so a slower earlier one cannot overwrite
+    /// it when it finishes. Same guard as the feature colour map in the sequence
+    /// editor, and for the same reason.
+    @State private var scanToken = UUID()
     
     private let enzymeDatabase = RestrictionEnzymeDatabase.shared
     
@@ -128,12 +132,34 @@ struct RestrictionSitesView: View {
             .sorted { $0.key < $1.key }
     }
     
+    /// Scans every enzyme in the database against the sequence.
+    ///
+    /// This used to run synchronously on the main thread — the only call site in
+    /// the app that did — so the window froze for the whole scan. That is ~110
+    /// enzymes across the entire sequence, which is fine for a small plasmid and
+    /// distinctly not fine for 50 kb.
+    ///
+    /// Everything the scan needs is copied out first so the background work never
+    /// touches the observed sequence object, and results are published in one
+    /// assignment on the main thread rather than one per enzyme.
     private func analyzeRestrictionSites() {
-        cutSites.removeAll()
-        
-        for enzyme in enzymeDatabase.enzymes {
-            let sites = enzyme.findCutSites(in: sequence.sequence, circular: sequence.isCircular)
-            cutSites[enzyme.name] = sites
+        let seqStr = sequence.sequence
+        let isCircular = sequence.isCircular
+        let enzymes = enzymeDatabase.enzymes
+        let token = UUID()
+        scanToken = token
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            var results: [String: [CutSite]] = [:]
+            for enzyme in enzymes {
+                results[enzyme.name] = enzyme.findCutSites(in: seqStr, circular: isCircular)
+            }
+            DispatchQueue.main.async {
+                // Discard a scan that has been overtaken — the sequence or the
+                // enzyme set may have changed while this one was running.
+                guard scanToken == token else { return }
+                cutSites = results
+            }
         }
     }
     

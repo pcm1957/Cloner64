@@ -411,7 +411,10 @@ struct AlignTwoSequencesView: View {
             }
             .frame(width: 160, alignment: .leading)
             
-            Text("\(feature.start)").frame(width: 70, alignment: .trailing)
+            // start is stored 0-based, end is exclusive — so the 1-based display
+            // is (start + 1) .. end. Printing start raw showed every feature one
+            // base lower than the Sequence Editor's feature table.
+            Text("\(feature.start + 1)").frame(width: 70, alignment: .trailing)
             Text("\(feature.end)").frame(width: 70, alignment: .trailing)
             Text(feature.strand == .forward ? "\u{2192}" : "\u{2190}")
                 .frame(width: 90, alignment: .center)
@@ -681,8 +684,8 @@ struct AlignTwoSequencesView: View {
             // --- Match line ---
             output.append(NSAttributedString(string: pad, attributes: matchAttrs))
             for idx in offset..<end {
-                let c1 = Character(String(al1[idx]).uppercased())
-                let c2 = Character(String(al2[idx]).uppercased())
+                let c1 = al1[idx].sequenceUppercased
+                let c2 = al2[idx].sequenceUppercased
                 if c1 != "-" && c2 != "-" && c1 == c2 {
                     output.append(NSAttributedString(string: "|", attributes: matchAttrs))
                 } else {
@@ -762,8 +765,8 @@ struct AlignTwoSequencesView: View {
                 var attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: baseColour]
                 
                 if isHighlighting && i < otherChunk.count && otherChunk[i] != "-" {
-                    let upper1 = Character(String(ch).uppercased())
-                    let upper2 = Character(String(otherChunk[i]).uppercased())
+                    let upper1 = ch.sequenceUppercased
+                    let upper2 = otherChunk[i].sequenceUppercased
                     if upper1 != upper2 {
                         attrs[.backgroundColor] = diffBgColor
                     }
@@ -902,10 +905,10 @@ class AlignTwoSequencesWindowManager {
         
         windows.append(window)
         
-        NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window, queue: .main
-        ) { [weak self] _ in
+        // Self-removing observer — see observeWindowClose in
+        // GraphicalMapWindowManager.swift. Without it the handler retains the
+        // window and both aligned sequences for the lifetime of the app.
+        observeWindowClose(window) { [weak self] in
             self?.windows.removeAll { $0 == window }
         }
     }

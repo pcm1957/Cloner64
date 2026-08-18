@@ -8,6 +8,45 @@ import UniformTypeIdentifiers
 import AppKit
 import SwiftUI
 
+// MARK: - Identifying which document a window shows
+
+/// Stamps an NSWindow with the identity of the document it displays, so the app
+/// can tell them apart without guessing from the title.
+///
+/// Documents used to be matched by comparing window titles against sequence
+/// names, with a longest-substring fallback. That is wrong whenever one name
+/// contains another — open "pUC19" and "pUC19-GFP" together and a command aimed
+/// at one could operate on the other. It also breaks the moment a window title
+/// carries any decoration, or two sequences share a name.
+///
+/// SwiftUI already creates these windows with WindowGroup(for: UUID.self), so
+/// the identity exists; it simply is not visible from AppKit. Writing it onto
+/// the window's identifier makes it visible, and exact.
+enum DocumentWindowID {
+    private static let dnaPrefix     = "cloner64.dna."
+    private static let proteinPrefix = "cloner64.protein."
+
+    static func stamp(_ window: NSWindow, dnaID: UUID) {
+        window.identifier = NSUserInterfaceItemIdentifier(dnaPrefix + dnaID.uuidString)
+    }
+
+    static func stamp(_ window: NSWindow, proteinID: UUID) {
+        window.identifier = NSUserInterfaceItemIdentifier(proteinPrefix + proteinID.uuidString)
+    }
+
+    /// The DNA sequence this window shows, or nil if it is not a stamped DNA window.
+    static func dnaID(of window: NSWindow) -> UUID? {
+        guard let raw = window.identifier?.rawValue, raw.hasPrefix(dnaPrefix) else { return nil }
+        return UUID(uuidString: String(raw.dropFirst(dnaPrefix.count)))
+    }
+
+    /// The protein this window shows, or nil if it is not a stamped protein window.
+    static func proteinID(of window: NSWindow) -> UUID? {
+        guard let raw = window.identifier?.rawValue, raw.hasPrefix(proteinPrefix) else { return nil }
+        return UUID(uuidString: String(raw.dropFirst(proteinPrefix.count)))
+    }
+}
+
 class SequenceManager: ObservableObject {
     @Published var sequences: [DNASequence] = []
     @Published var currentSequence: DNASequence?
@@ -91,6 +130,22 @@ class SequenceManager: ObservableObject {
         ) { [weak self] notification in
             guard let self = self,
                   let window = notification.object as? NSWindow else { return }
+
+            // Exact identity first — set when the window was created, so it is
+            // right even when two sequences share a name or one name contains
+            // another. The title matching below remains as a fallback for any
+            // window that was not stamped.
+            if let id = DocumentWindowID.dnaID(of: window),
+               let match = self.sequences.first(where: { $0.id == id }) {
+                self.currentSequence = match
+                return
+            }
+            if let id = DocumentWindowID.proteinID(of: window),
+               let match = self.proteinSequences.first(where: { $0.id == id }) {
+                self.currentProtein = match
+                return
+            }
+
             let title = window.title
             // Try DNA sequences first (exact match, then longest substring match)
             if let exact = self.sequences.first(where: { $0.name == title }) {
@@ -252,13 +307,22 @@ class SequenceManager: ObservableObject {
                 if ext == "xprt" {
                     if let protein = parser.parseXPRT(url) {
                         protein.sourceURL = url
+                        // Read before the async hop — see the XDNA branch below.
+                        let importWarnings = parser.lastImportWarnings
                         DispatchQueue.main.async {
                             self.proteinSequences.append(protein)
                             self.currentProtein = protein
                             self.currentSequence = nil
                             RecentFilesManager.shared.addRecent(url)
                             ProteinWindowOpener.shared.openProteinWindow(protein.id)
-                            protein.isDirty = false
+                            // Was `protein.isDirty = false`. Now that ProteinSequence
+                            // has dirty tracking, a freshly-loaded protein must use the
+                            // same one-tick suppression the DNA loaders use, or the
+                            // load's own Combine events re-dirty it immediately.
+                            protein.markCleanAfterLoad()
+                            // After the window opens, so the warning refers to
+                            // something the user can already see.
+                            self.showImportWarningsIfNeeded(url: url, warnings: importWarnings)
                             #if DEBUG
                             print("   ✅ XPRT protein loaded successfully")
                             #endif
@@ -274,12 +338,16 @@ class SequenceManager: ObservableObject {
                 parser.convertToUppercaseOnImport = convertToUppercase
                 if let sequence = parser.parseXDNA(url) {
                     sequence.sourceURL = url
+                    // Read before the async hop — the parser is reused for the
+                    // next file and clears this at the start of each parse.
+                    let importWarnings = parser.lastImportWarnings
                     DispatchQueue.main.async {
                         self.sequences.append(sequence)
                         self.currentSequence = sequence
                         RecentFilesManager.shared.addRecent(url)
                         SequenceWindowOpener.shared.openSequenceWindow(sequence.id)
                         sequence.markCleanAfterLoad()
+                        self.showImportWarningsIfNeeded(url: url, warnings: importWarnings)
                         #if DEBUG
                         print("   ✅ XDNA loaded successfully")
                         #endif
@@ -421,6 +489,23 @@ class SequenceManager: ObservableObject {
         }
     }
     
+    /// Reports problems found while parsing a file that nonetheless loaded.
+    ///
+    /// Distinct from showOpenErrorAlert: the file opened and the sequence is
+    /// usable, but something in it is not what it should be. Previously these
+    /// findings were printed only in DEBUG builds and thrown away otherwise, so
+    /// a release build imported a corrupt file without a word.
+    private func showImportWarningsIfNeeded(url: URL, warnings: [String]) {
+        guard !warnings.isEmpty else { return }
+        let alert = NSAlert()
+        alert.messageText = "Imported with warnings"
+        alert.informativeText = "File: \(url.lastPathComponent)\n\n"
+            + warnings.joined(separator: "\n\n")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
     /// Displays a modal alert describing why a file could not be opened.
     private func showOpenErrorAlert(url: URL, message: String, detail: String) {
         DispatchQueue.main.async {
@@ -468,7 +553,17 @@ class SequenceManager: ObservableObject {
     /// window rather than just refront the existing one. Falls back to the
     /// SwiftUI opener if no matching AppKit window is found.
     private func bringExistingWindowForward(named name: String, fallbackID: UUID, isProtein: Bool) {
-        let matched = NSApp.windows.first { window in
+        // Prefer the window stamped with this exact document. Matching on title
+        // alone could raise a different sequence whose name merely contains this
+        // one — and then the user edits the wrong document believing it is theirs.
+        let byIdentity = NSApp.windows.first { window in
+            guard window.isVisible else { return false }
+            return isProtein
+                ? DocumentWindowID.proteinID(of: window) == fallbackID
+                : DocumentWindowID.dnaID(of: window) == fallbackID
+        }
+
+        let matched = byIdentity ?? NSApp.windows.first { window in
             guard window.isVisible else { return false }
             let title = window.title
             return title == name || title.contains(name)
@@ -1630,7 +1725,18 @@ class SequenceManager: ObservableObject {
     /// that operate on "the active sequence" should call this first.
     @MainActor
     func syncCurrentSequenceToFrontWindow() {
-        guard let title = NSApp.keyWindow?.title else { return }
+        guard let window = NSApp.keyWindow else { return }
+
+        // Exact identity first. This is the path that matters most: these
+        // commands act on "the active sequence", so resolving to the wrong
+        // document here edits the wrong DNA.
+        if let id = DocumentWindowID.dnaID(of: window),
+           let match = sequences.first(where: { $0.id == id }) {
+            currentSequence = match
+            return
+        }
+
+        let title = window.title
         // Prefer exact name match
         if let exact = sequences.first(where: { $0.name == title }) {
             currentSequence = exact

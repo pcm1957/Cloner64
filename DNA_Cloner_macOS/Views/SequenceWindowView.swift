@@ -380,6 +380,10 @@ struct WindowCloseGuard: NSViewRepresentable {
         
         func attach(to window: NSWindow, sequence: DNASequence) {
             self.sequence = sequence
+            // Record which sequence this window shows, so commands can identify
+            // it exactly instead of matching its title against sequence names.
+            // See DocumentWindowID in SequenceManager.swift.
+            DocumentWindowID.stamp(window, dnaID: sequence.id)
             // Store original delegate so we can forward other calls
             if window.delegate !== self {
                 self.originalDelegate = window.delegate

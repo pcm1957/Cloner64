@@ -20,6 +20,12 @@ extension DNASequence {
         // Call self.translate(frame:) directly — no temporary DNASequence needed.
         for frame in 1...3 {
             let protein = self.translate(frame: frame)
+            // Snapshot as a Character array once. Every ORF extraction below used
+            // protein.index(protein.startIndex, offsetBy:), which walks the String
+            // from the beginning each time — O(n) per extraction, and there can be
+            // one per stop codon. Indexing an array is O(1).
+            let aaChars = Array(protein)
+            let aaCount = aaChars.count
             var startPos: Int?       // position of first M (ATG)
             var segStart: Int = 0    // position after last stop (for no-ATG detection)
             for (i, aa) in protein.enumerated() {
@@ -30,9 +36,7 @@ extension DNASequence {
                     if let start = startPos {
                         let orfLen = (i - start) * 3
                         if orfLen >= minNucleotides {
-                            let pStart = protein.index(protein.startIndex, offsetBy: start)
-                            let pEnd   = protein.index(protein.startIndex, offsetBy: i)
-                            let proteinSeq = String(protein[pStart..<pEnd])
+                            let proteinSeq = String(aaChars[start..<i])
                             orfs.append(ORFResult(
                                 position: (frame - 1) + start * 3 + 1,
                                 size: orfLen,
@@ -46,9 +50,7 @@ extension DNASequence {
                         // Stretch from segStart to stop with no ATG
                         let orfLen = (i - segStart) * 3
                         if orfLen >= minNucleotides {
-                            let pStart = protein.index(protein.startIndex, offsetBy: segStart)
-                            let pEnd   = protein.index(protein.startIndex, offsetBy: i)
-                            let proteinSeq = String(protein[pStart..<pEnd])
+                            let proteinSeq = String(aaChars[segStart..<i])
                             orfs.append(ORFResult(
                                 position: (frame - 1) + segStart * 3 + 1,
                                 size: orfLen,
@@ -65,10 +67,9 @@ extension DNASequence {
             }
             // Capture ORF that runs to end of sequence without a stop codon
             if let start = startPos {
-                let orfLen = (protein.count - start) * 3
+                let orfLen = (aaCount - start) * 3
                 if orfLen >= minNucleotides {
-                    let pStart = protein.index(protein.startIndex, offsetBy: start)
-                    let proteinSeq = String(protein[pStart...])
+                    let proteinSeq = String(aaChars[start...])
                     orfs.append(ORFResult(
                         position: (frame - 1) + start * 3 + 1,
                         size: orfLen,
@@ -78,12 +79,11 @@ extension DNASequence {
                         protein: proteinSeq
                     ))
                 }
-            } else if segStart < protein.count {
+            } else if segStart < aaCount {
                 // No ATG and no stop — runs to end
-                let orfLen = (protein.count - segStart) * 3
+                let orfLen = (aaCount - segStart) * 3
                 if orfLen >= minNucleotides {
-                    let pStart = protein.index(protein.startIndex, offsetBy: segStart)
-                    let proteinSeq = String(protein[pStart...])
+                    let proteinSeq = String(aaChars[segStart...])
                     orfs.append(ORFResult(
                         position: (frame - 1) + segStart * 3 + 1,
                         size: orfLen,
@@ -99,6 +99,10 @@ extension DNASequence {
         // Reverse strand (-1, -2, -3)
         for frame in 1...3 {
             let protein = self.translate(frame: -frame)
+            // See the forward-strand loop above — O(1) indexing instead of an
+            // O(n) String walk per extraction.
+            let aaChars = Array(protein)
+            let aaCount = aaChars.count
             var startPos: Int?
             var segStart: Int = 0
             for (i, aa) in protein.enumerated() {
@@ -108,9 +112,7 @@ extension DNASequence {
                         let orfLen = (i - start) * 3
                         if orfLen >= minNucleotides {
                             let rcDnaPos = (frame - 1) + start * 3
-                            let pStart = protein.index(protein.startIndex, offsetBy: start)
-                            let pEnd   = protein.index(protein.startIndex, offsetBy: i)
-                            let proteinSeq = String(protein[pStart..<pEnd])
+                            let proteinSeq = String(aaChars[start..<i])
                             orfs.append(ORFResult(
                                 position: max(1, seqLen - rcDnaPos - orfLen + 1),
                                 size: orfLen,
@@ -124,9 +126,7 @@ extension DNASequence {
                         let orfLen = (i - segStart) * 3
                         if orfLen >= minNucleotides {
                             let rcDnaPos = (frame - 1) + segStart * 3
-                            let pStart = protein.index(protein.startIndex, offsetBy: segStart)
-                            let pEnd   = protein.index(protein.startIndex, offsetBy: i)
-                            let proteinSeq = String(protein[pStart..<pEnd])
+                            let proteinSeq = String(aaChars[segStart..<i])
                             orfs.append(ORFResult(
                                 position: max(1, seqLen - rcDnaPos - orfLen + 1),
                                 size: orfLen,
@@ -143,11 +143,10 @@ extension DNASequence {
             }
             // Capture ORF that runs to end of reverse strand without a stop codon
             if let start = startPos {
-                let orfLen = (protein.count - start) * 3
+                let orfLen = (aaCount - start) * 3
                 if orfLen >= minNucleotides {
                     let rcDnaPos = (frame - 1) + start * 3
-                    let pStart = protein.index(protein.startIndex, offsetBy: start)
-                    let proteinSeq = String(protein[pStart...])
+                    let proteinSeq = String(aaChars[start...])
                     orfs.append(ORFResult(
                         position: max(1, seqLen - rcDnaPos - orfLen + 1),
                         size: orfLen,
@@ -157,12 +156,11 @@ extension DNASequence {
                         protein: proteinSeq
                     ))
                 }
-            } else if segStart < protein.count {
-                let orfLen = (protein.count - segStart) * 3
+            } else if segStart < aaCount {
+                let orfLen = (aaCount - segStart) * 3
                 if orfLen >= minNucleotides {
                     let rcDnaPos = (frame - 1) + segStart * 3
-                    let pStart = protein.index(protein.startIndex, offsetBy: segStart)
-                    let proteinSeq = String(protein[pStart...])
+                    let proteinSeq = String(aaChars[segStart...])
                     orfs.append(ORFResult(
                         position: max(1, seqLen - rcDnaPos - orfLen + 1),
                         size: orfLen,

@@ -1061,7 +1061,18 @@ struct GraphicalMapView: View {
                 }
             }
         }
-        // Fallback — compute manually with wrapping
+        // Fallback, reached only when no cut site sits at this exact position —
+        // e.g. the sequence changed since the site was picked.
+        //
+        // This used to add the enzyme's cut offsets to the recognition-site
+        // position by hand, which ignores strand and so misplaces the cut for a
+        // reverse-strand Type IIS enzyme. For an enzyme that cuts inside its own
+        // recognition site the hand calculation is still correct, so keep it
+        // there; for one that cuts outside, there is no way to know which side
+        // without the strand, and inventing a coordinate is worse than admitting
+        // we don't have one.
+        guard !enzyme.cutsOutsideSite else { return nil }
+
         let seqLen = sequence.sequence.count
         var cp5 = s.position + enzyme.cutPosition5Prime
         var cp3 = s.position + enzyme.cutPosition3Prime
@@ -1253,12 +1264,27 @@ struct GraphicalMapView: View {
         enzymeByName[name] ?? RestrictionEnzymeDatabase.shared.enzymes.first { $0.name == name }
     }
     
+    /// Resolve an (enzyme name, recognition-site position) tuple back to the
+    /// real CutSite.
+    ///
+    /// The map passes sites around as plain tuples, which carry no strand. That
+    /// is fine for palindromic enzymes, but a Type IIS enzyme cuts on one
+    /// specific side of its recognition site, and which side depends on the
+    /// strand it sits on. Recovering the CutSite is the only way to get the cut
+    /// coordinate right.
+    private func resolveCutSite(_ site: (enzyme: String, position: Int)) -> CutSite? {
+        guard let enzyme = findEnzyme(named: site.enzyme) else { return nil }
+        return enzyme
+            .findCutSites(in: sequence.sequence.uppercased(), circular: sequence.isCircular)
+            .first { $0.position == site.position }
+    }
+
     /// Compute actual 5' and 3' cut positions for a selected site (wrapped for circular)
     private func cutPositions(for site: (enzyme: String, position: Int)) -> (cut5: Int, cut3: Int)? {
-        guard let enzyme = findEnzyme(named: site.enzyme) else { return nil }
+        guard let cs = resolveCutSite(site) else { return nil }
         let seqLen = sequence.sequence.count
-        var cut5 = site.position + enzyme.cutPosition5Prime
-        var cut3 = site.position + enzyme.cutPosition3Prime
+        var cut5 = cs.cutPosition5Prime
+        var cut3 = cs.cutPosition3Prime
         if sequence.isCircular && seqLen > 0 {
             cut5 = ((cut5 % seqLen) + seqLen) % seqLen
             cut3 = ((cut3 % seqLen) + seqLen) % seqLen
@@ -1271,19 +1297,21 @@ struct GraphicalMapView: View {
         guard let enzyme = findEnzyme(named: site.enzyme) else { return nil }
         let seq = sequence.sequence.uppercased()
         let seqLen = seq.count
-        
+
         if enzyme.overhangType == .blunt {
             return (sequence: "", type: "blunt")
         }
-        
-        // Use raw (unwrapped) cut positions to preserve overhang direction
-        let rawCut5 = site.position + enzyme.cutPosition5Prime
-        let rawCut3 = site.position + enzyme.cutPosition3Prime
-        let overhangStart = min(rawCut5, rawCut3)
-        let overhangEnd = max(rawCut5, rawCut3)
-        
+
+        // Read the overhang from the real cut coordinates. Adding the enzyme's
+        // offsets to the recognition-site position by hand ignored the strand,
+        // which put a reverse-strand Type IIS overhang on the wrong side of the
+        // site and reported the wrong bases.
+        guard let cs = resolveCutSite(site) else { return nil }
+        let overhangStart = min(cs.cutPosition5Prime, cs.cutPosition3Prime)
+        let overhangEnd = max(cs.cutPosition5Prime, cs.cutPosition3Prime)
+
         let overhang = extractCircularSubstring(from: seq, start: overhangStart, end: overhangEnd, seqLen: seqLen)
-        
+
         if enzyme.overhangType == .sticky5Prime {
             return (sequence: overhang, type: "5'")
         } else {
@@ -1326,7 +1354,10 @@ struct GraphicalMapView: View {
             if let first = firstCutSite {
                 HStack(spacing: 4) {
                     Circle().fill(Color.green).frame(width: 10, height: 10)
-                    Text("\(first.enzyme) (\(first.position))")
+                    // 1-based for display, like every other window. This is the
+                    // fragment-selector panel, a separate code path from the map
+                    // labels — fixing those alone left this one still 0-based.
+                    Text("\(first.enzyme) (\(first.position + 1))")
                         .font(.system(size: labelFontSize, weight: .semibold))
                     if let info = overhangInfo(for: first) {
                         if info.type == "blunt" {
@@ -1392,7 +1423,8 @@ struct GraphicalMapView: View {
                         }
                     }
                     Circle().fill(Color.red).frame(width: 10, height: 10)
-                    Text("\(second.enzyme) (\(second.position))")
+                    // 1-based for display — see the note on the green site above.
+                    Text("\(second.enzyme) (\(second.position + 1))")
                         .font(.system(size: labelFontSize, weight: .semibold))
                 }
                 .contextHelp("gmap.fragmentSecondSite")
@@ -2174,7 +2206,12 @@ struct GraphicalMapView: View {
             let angle = angleForPosition(site.position, sequenceLength: sequenceLength)
             let angleRad = CGFloat(angle * .pi / 180.0)
             
-            let labelText = "\(site.enzyme) (\(site.position))"
+            // site.position is 0-based internally; the label must be 1-based to
+            // agree with the Sequence Editor, the Restriction Sites window and
+            // every other tool a biologist uses. (The cache keys built from
+            // site.position elsewhere in this file stay 0-based — they are
+            // identity keys, not display.)
+            let labelText = "\(site.enzyme) (\(site.position + 1))"
             let labelWidth: CGFloat = CGFloat(labelText.count) * 8.5 + 16
             let labelSize = CGSize(width: labelWidth, height: labelHeight)
             
@@ -2235,7 +2272,12 @@ struct GraphicalMapView: View {
             let cosA = CGFloat(cos(angleRad))
             let sinA = CGFloat(sin(angleRad))
             
-            let labelText = "\(site.enzyme) (\(site.position))"
+            // site.position is 0-based internally; the label must be 1-based to
+            // agree with the Sequence Editor, the Restriction Sites window and
+            // every other tool a biologist uses. (The cache keys built from
+            // site.position elsewhere in this file stay 0-based — they are
+            // identity keys, not display.)
+            let labelText = "\(site.enzyme) (\(site.position + 1))"
             let labelWidth: CGFloat = CGFloat(labelText.count) * 8.5 + 16
             let labelHeight: CGFloat = 18
             let labelSize = CGSize(width: labelWidth, height: labelHeight)
@@ -2355,7 +2397,10 @@ struct GraphicalMapView: View {
     
     private func draggableLabel(placement: LabelPlacement, offset: CGSize, key: String) -> some View {
         let isFeatureLabel = placement.site.siteCount == -1
-        let labelText = isFeatureLabel ? placement.site.enzyme : "\(placement.site.enzyme) (\(placement.site.position))"
+        // 1-based for display, as everywhere else. This is the draggable label
+        // actually drawn on the map — a fourth label builder, separate from the
+        // three `labelText` sites used for layout measurement.
+        let labelText = isFeatureLabel ? placement.site.enzyme : "\(placement.site.enzyme) (\(placement.site.position + 1))"
         let isDragging = activeDragKey == key
         let isSelected = !isFeatureLabel && (siteIsFirstCut(placement.site) || siteIsSecondCut(placement.site))
         let isBlocked   = !isFeatureLabel && isMethylationBlocked(enzyme: placement.site.enzyme, position: placement.site.position)
@@ -2912,7 +2957,12 @@ struct GraphicalMapView: View {
             let siteX = xForPosition(site.position, lineX: lineX, lineLength: lineLength, sequenceLength: sequenceLength)
             let sitePoint = CGPoint(x: siteX, y: lineY)
             
-            let labelText = "\(site.enzyme) (\(site.position))"
+            // site.position is 0-based internally; the label must be 1-based to
+            // agree with the Sequence Editor, the Restriction Sites window and
+            // every other tool a biologist uses. (The cache keys built from
+            // site.position elsewhere in this file stay 0-based — they are
+            // identity keys, not display.)
+            let labelText = "\(site.enzyme) (\(site.position + 1))"
             let labelWidth: CGFloat = CGFloat(labelText.count) * 8.5 + 16
             let labelHeight: CGFloat = 18
             let labelSize = CGSize(width: labelWidth, height: labelHeight)

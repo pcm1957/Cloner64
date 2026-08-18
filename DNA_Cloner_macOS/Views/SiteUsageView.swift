@@ -64,10 +64,27 @@ struct EnzymeSiteInfo: Identifiable {
     let recognitionSite: String
     let isBlunt: Bool
     let cutCount: Int
-    let positions: [Int]      // 1-based cut positions
+    /// Recognition-site positions, 0-BASED (the first base of the sequence is 0),
+    /// because that is how they come out of findCutSites and how Swift indexes
+    /// strings. Do not show these to the user directly — use `displayPositions`.
+    ///
+    /// The old comment here claimed these were "1-based cut positions". They are
+    /// neither 1-based nor cut positions, and four places printed them raw, which
+    /// is why Site Usage reported every site one base lower than the Sequence
+    /// Editor's Find a Site.
+    let positions: [Int]
     let fragments: [Int]      // fragment sizes in bp, descending
     let methylationNote: String  // "" = no issue; set when Dam/Dcm/CpG affects this enzyme
     let isMyEnzyme: Bool         // true when enzyme is in the user's freezer stock
+
+    /// Recognition-site positions as the user should see them: 1-based, so the
+    /// first base of the sequence is 1.
+    ///
+    /// This matches GenBank, SnapGene, ApE and REBASE, and matches what the
+    /// Sequence Editor's Find a Site and the Restriction Sites window already
+    /// show. Every user-facing readout — table, clipboard, export, print —
+    /// must use this rather than `positions`.
+    var displayPositions: [Int] { positions.map { $0 + 1 } }
 }
 
 enum SiteUsageTab: String, CaseIterable {
@@ -423,7 +440,7 @@ struct SiteUsageView: View {
                                 .fontWeight(enzyme.cutCount == 1 ? .bold : .regular)
                                 .foregroundColor(enzyme.cutCount == 1 ? .blue : (enzyme.cutCount == 0 ? .secondary : .primary))
                                 .frame(width: 50, alignment: .center)
-                            Text(enzyme.positions.isEmpty ? "—" : enzyme.positions.map { "\($0)" }.joined(separator: ", "))
+                            Text(enzyme.displayPositions.isEmpty ? "—" : enzyme.displayPositions.map { "\($0)" }.joined(separator: ", "))
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
                                 .frame(width: 160, alignment: .leading)
@@ -450,7 +467,7 @@ struct SiteUsageView: View {
                         .background(index % 2 == 0 ? Color.clear : Color(.controlBackgroundColor).opacity(0.5))
                         .contextMenu {
                             Button("Copy row") {
-                                let text = "\(enzyme.name)\t\(enzyme.recognitionSite)\t\(enzyme.isBlunt ? "Blunt" : "Sticky")\t\(enzyme.cutCount)\t\(enzyme.positions.map { "\($0)" }.joined(separator: ", "))\t\(enzyme.fragments.map { "\($0)" }.joined(separator: ", "))"
+                                let text = "\(enzyme.name)\t\(enzyme.recognitionSite)\t\(enzyme.isBlunt ? "Blunt" : "Sticky")\t\(enzyme.cutCount)\t\(enzyme.displayPositions.map { "\($0)" }.joined(separator: ", "))\t\(enzyme.fragments.map { "\($0)" }.joined(separator: ", "))"
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(text, forType: .string)
                                 showCopied("Row copied")
@@ -501,28 +518,48 @@ struct SiteUsageView: View {
             for enzyme in db.enzymes {
                 let sites = enzyme.findCutSites(in: seqStr, circular: isCircular)
 
-                // Deduplicate positions
-                var seen: Set<Int> = []
+                // Two separate lists, because for a Type IIS enzyme the
+                // recognition site and the cut it produces are not in the same
+                // place:
+                //   positions  = recognition-site positions, shown in the
+                //                Positions column.
+                //   cutCoords  = where the enzyme actually cuts, used for the
+                //                fragment sizes.
+                // The previous code deduplicated down to bare site positions and
+                // then added the enzyme's cut offset to each. That threw away the
+                // strand, so a reverse-strand Type IIS site — which cuts UPSTREAM
+                // of its recognition sequence — had its cut placed on the wrong
+                // side, and the fragment sizes came out wrong.
+                var seenSites: Set<Int> = []
                 var positions: [Int] = []
+                var seenCuts: Set<Int> = []
+                var cutCoords: [Int] = []
                 for site in sites {
-                    if !seen.contains(site.position) {
+                    if !seenSites.contains(site.position) {
                         positions.append(site.position)
-                        seen.insert(site.position)
+                        seenSites.insert(site.position)
+                    }
+                    let cut = site.cutPosition5Prime
+                    if !seenCuts.contains(cut) {
+                        cutCoords.append(cut)
+                        seenCuts.insert(cut)
                     }
                 }
                 positions.sort()
 
                 // Compute fragments
                 let fragments: [Int]
-                if positions.isEmpty {
+                if cutCoords.isEmpty {
                     fragments = []
                 } else {
-                    let cutPositions = positions.map { $0 + enzyme.cutPosition5Prime }
+                    // Only wrap on circular sequences. On a linear molecule the
+                    // cut is already in range (findCutSites drops Type IIS sites
+                    // whose cut would fall off the end), and wrapping a cut at the
+                    // very end round to 0 would corrupt the fragment sizes.
+                    let cutPositions = cutCoords
                         .map { pos -> Int in
-                            var p = pos
-                            if p < 0 { p += seqLen }
-                            if p > seqLen { p -= seqLen }
-                            return p
+                            guard isCircular, seqLen > 0 else { return pos }
+                            return ((pos % seqLen) + seqLen) % seqLen
                         }
                         .sorted()
                     fragments = computeFragments(cutPositions: cutPositions, seqLen: seqLen, circular: isCircular)
@@ -577,32 +614,13 @@ struct SiteUsageView: View {
         }
     }
     
+    /// Delegates to DigestCalculator (RestrictionEnzyme.swift), the single
+    /// implementation of this calculation. Behaviour here is unchanged — this
+    /// copy was already correct; two others had drifted.
     private func computeFragments(cutPositions: [Int], seqLen: Int, circular: Bool) -> [Int] {
-        guard !cutPositions.isEmpty else { return [seqLen] }
-        let sorted = cutPositions.sorted()
-        var fragments: [Int] = []
-        
-        if circular {
-            for i in 0..<sorted.count {
-                let next = (i + 1) % sorted.count
-                var size: Int
-                if next > i {
-                    size = sorted[next] - sorted[i]
-                } else {
-                    size = (seqLen - sorted[i]) + sorted[next]
-                }
-                if size > 0 { fragments.append(size) }
-            }
-        } else {
-            if sorted[0] > 0 { fragments.append(sorted[0]) }
-            for i in 0..<sorted.count - 1 {
-                let size = sorted[i + 1] - sorted[i]
-                if size > 0 { fragments.append(size) }
-            }
-            if sorted.last! < seqLen { fragments.append(seqLen - sorted.last!) }
-        }
-        
-        return fragments.filter { $0 > 0 }
+        DigestCalculator.fragmentSizes(cutPositions: cutPositions,
+                                       sequenceLength: seqLen,
+                                       circular: circular)
     }
     
     
@@ -616,7 +634,7 @@ struct SiteUsageView: View {
         text += "Enzyme\tSite\tType\tCuts\tPositions\tFragments\n"
         
         for enzyme in data {
-            let positions = enzyme.positions.map { "\($0)" }.joined(separator: ", ")
+            let positions = enzyme.displayPositions.map { "\($0)" }.joined(separator: ", ")
             let fragments = enzyme.fragments.map { "\($0)" }.joined(separator: ", ")
             text += "\(enzyme.name)\t\(enzyme.recognitionSite)\t\(enzyme.isBlunt ? "Blunt" : "Sticky")\t\(enzyme.cutCount)\t\(positions)\t\(fragments)\n"
         }
@@ -650,7 +668,7 @@ struct SiteUsageView: View {
         report += String(repeating: "─", count: 100) + "\n"
         
         for enzyme in data {
-            let positions = enzyme.positions.isEmpty ? "—" : enzyme.positions.map { "\($0)" }.joined(separator: ", ")
+            let positions = enzyme.displayPositions.isEmpty ? "—" : enzyme.displayPositions.map { "\($0)" }.joined(separator: ", ")
             let fragments = enzyme.fragments.isEmpty ? "—" : enzyme.fragments.map { formatBP($0) }.joined(separator: ", ")
             let type = enzyme.isBlunt ? "Blunt" : "Sticky"
             report += String(format: "%-14s %-14s %-7s %5d  %-20s  %s\n",

@@ -733,9 +733,21 @@ class FeatureLibraryManager: ObservableObject {
             while let range = protein.range(of: query, range: searchRange) {
                 let aaPos = protein.distance(from: protein.startIndex, to: range.lowerBound)
                 
+                // Feature coordinates are half-open throughout the app: `start`
+                // is 0-based and inclusive, `end` is EXCLUSIVE, so the length is
+                // simply end - start. The GenBank importer and exporter are the
+                // reference for this (SequenceManager: "GenBank is 1-based;
+                // Feature.start is stored 0-based", with +1 applied on export).
+                //
+                // Both branches below previously computed an INCLUSIVE end, so a
+                // feature found by protein match came out one base shorter than
+                // the identical feature found by DNA match — the DNA path a few
+                // lines up uses `end = pos + queryLen`, which is exclusive.
+                let dnaLength = query.count * 3
+
                 if isForward {
                     let dnaStart = (frame - 1) + aaPos * 3
-                    let dnaEnd = dnaStart + query.count * 3 - 1  // inclusive end
+                    let dnaEnd = dnaStart + dnaLength          // exclusive
                     results.append(ScanResult(
                         libraryItem: item,
                         collectionName: collectionName,
@@ -745,15 +757,19 @@ class FeatureLibraryManager: ObservableObject {
                         matchPercentage: 100.0
                     ))
                 } else {
+                    // Map the hit from reverse-complement coordinates back to the
+                    // forward strand. A revcomp index p corresponds to forward
+                    // index (seqLength - 1 - p), so the match occupying revcomp
+                    // [rcStart, rcStart + dnaLength) occupies forward
+                    // [seqLength - rcStart - dnaLength, seqLength - rcStart).
                     let rcStart = (abs(frame) - 1) + aaPos * 3
-                    let rcEnd = rcStart + query.count * 3 - 1    // inclusive end
-                    let dnaStart = seqLength - rcEnd - 1
-                    let dnaEnd = seqLength - rcStart - 1
+                    let dnaStart = seqLength - rcStart - dnaLength
+                    let dnaEnd = seqLength - rcStart           // exclusive
                     results.append(ScanResult(
                         libraryItem: item,
                         collectionName: collectionName,
                         start: max(0, dnaStart),
-                        end: min(dnaEnd, seqLength - 1),
+                        end: min(dnaEnd, seqLength),
                         strand: .reverse,
                         matchPercentage: 100.0
                     ))
@@ -765,6 +781,22 @@ class FeatureLibraryManager: ObservableObject {
     
     /// Apply scan results as features on the given sequence
     func applyResults(to sequence: DNASequence, results: [ScanResult]) {
+        // Work on a local copy and publish ONCE at the end.
+        //
+        // This used to mutate sequence.features directly inside the loop, so a
+        // scan that found 40 features fired 40 separate @Published changes. Each
+        // one re-rendered the sequence editor, which kicked off another
+        // background rebuild of its feature-colour map. Those rebuilds then
+        // raced, and whichever finished last won — often one computed from an
+        // early, incomplete snapshot, leaving the coloured bars missing until
+        // something forced a fresh redraw.
+        //
+        // Building the array locally also makes the duplicate check see
+        // features added earlier in THIS batch, which the old version relied on
+        // the live array for.
+        var working = sequence.features
+        var changed = false
+
         for result in results {
             let feature = Feature(
                 name: result.libraryItem.name,
@@ -779,7 +811,7 @@ class FeatureLibraryManager: ObservableObject {
             // Check for existing feature that is effectively the same:
             //  - same start AND end (same location, regardless of name), OR
             //  - same name AND positions overlap
-            let isDuplicate = sequence.features.contains { existing in
+            let isDuplicate = working.contains { existing in
                 // Exact position match (same feature, possibly different name)
                 if existing.start == feature.start && existing.end == feature.end {
                     return true
@@ -794,16 +826,24 @@ class FeatureLibraryManager: ObservableObject {
             }
             if isDuplicate {
                 // Update existing exact-position match with library styling if present
-                if let existingIdx = sequence.features.firstIndex(where: {
+                if let existingIdx = working.firstIndex(where: {
                     $0.start == feature.start && $0.end == feature.end
                 }) {
-                    sequence.features[existingIdx].color = result.libraryItem.color
-                    sequence.features[existingIdx].type = result.libraryItem.featureType
-                    sequence.features[existingIdx].showArrow = result.libraryItem.showArrow
+                    working[existingIdx].color = result.libraryItem.color
+                    working[existingIdx].type = result.libraryItem.featureType
+                    working[existingIdx].showArrow = result.libraryItem.showArrow
+                    changed = true
                 }
             } else {
-                sequence.features.append(feature)
+                working.append(feature)
+                changed = true
             }
+        }
+
+        // Single publish. Skipping the assignment when nothing changed avoids
+        // marking the sequence dirty for a scan that found only duplicates.
+        if changed {
+            sequence.features = working
         }
     }
     

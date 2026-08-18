@@ -1764,7 +1764,8 @@ struct PrimerDesignView: View {
                                 ForEach(features) { feat in
                                     featureCheckRow(
                                         name: feat.name,
-                                        detail: "\(feat.start)-\(feat.end) (\(feat.strand == .forward ? "+" : "-"))",
+                                        // 1-based display: start is stored 0-based, end is exclusive.
+                                        detail: "\(feat.start + 1)-\(feat.end) (\(feat.strand == .forward ? "+" : "-"))",
                                         color: feat.color.color,
                                         isSelected: selectedFeatureIDs.contains(feat.id),
                                         toggle: { toggleFeature(feat.id) }
@@ -2547,7 +2548,8 @@ struct PrimerDesignView: View {
                     .fill(feat.color.color.opacity(0.7))
                     .frame(width: w, height: featureBarHeight)
                     .offset(x: x1, y: featureY)
-                    .help("\(feat.name) (\(feat.start)-\(feat.end))")
+                    // 1-based display: start is stored 0-based, end is exclusive.
+                    .help("\(feat.name) (\(feat.start + 1)-\(feat.end))")
                 
                 // Label if wide enough
                 if w > 30 {
@@ -3954,27 +3956,12 @@ struct PrimerDesignView: View {
     
     // MARK: - Tm Calculation (Serial Cloner 3-tier formula)
     
+    /// Delegates to MeltingTemperature (DNASequence.swift), the single
+    /// implementation of the Serial Cloner three-tier formula. Behaviour is
+    /// unchanged — this copy was already correct, including the salt-term clamp
+    /// that a third copy in SequenceEditorView had lost.
     func calculateTm(_ primer: String, naM: Double) -> Double {
-        var gc = 0, at = 0
-        for ch in primer.uppercased() {
-            switch ch {
-            case "G", "C": gc += 1
-            case "A", "T": at += 1
-            default: break
-            }
-        }
-        let total = gc + at
-        guard total > 0 else { return 0 }
-        
-        let logNa = log10(max(naM, 0.001))
-        
-        if total < 14 {
-            return Double(at * 2 + gc * 4) - 16.6 * log10(0.050) + 16.6 * logNa
-        } else if total <= 51 {
-            return 100.5 + 41.0 * Double(gc) / Double(total) - 820.0 / Double(total) + 16.6 * logNa
-        } else {
-            return 81.5 + 41.0 * Double(gc) / Double(total) - 500.0 / Double(total) + 16.6 * logNa
-        }
+        MeltingTemperature.celsius(for: primer, sodiumMolar: naM)
     }
     
     

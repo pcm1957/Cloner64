@@ -459,7 +459,10 @@ struct ProteinWindowView: View {
                                     Text(feat.type.rawValue)
                                         .font(.caption)
                                         .foregroundColor(.secondary)
-                                    Text("\(feat.start)-\(feat.end)")
+                                    // 1-based display: start is stored 0-based,
+                                    // end is exclusive and so is already the
+                                    // 1-based last residue.
+                                    Text("\(feat.start + 1)-\(feat.end)")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                     Text(feat.strand == .forward ? "\u{2192}" : "\u{2190}")
@@ -766,45 +769,65 @@ struct ProteinSequenceTextView: View {
     private func doDelete() {
         guard !isLocked else { showLockedWarning = true; return }
         guard selectionStart < selectionEnd || selectionStart > 0 else { return }
+        let lengthBeforeEdit = seqString.count
         if selectionStart < selectionEnd {
+            let safeEnd = min(selectionEnd, lengthBeforeEdit)
             let before = String(seqString.prefix(selectionStart))
-            let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: min(selectionEnd, seqString.count))))
+            let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeEnd)))
             protein.sequence = before + after
+            protein.features = protein.features.shiftedForDeletion(deleteStart: selectionStart,
+                                                                   deleteEnd: safeEnd,
+                                                                   sequenceLength: lengthBeforeEdit)
             selectionEnd = selectionStart
         } else if selectionStart > 0 {
             let deletePos = selectionStart - 1
             let before = String(seqString.prefix(deletePos))
             let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: selectionStart)))
             protein.sequence = before + after
+            protein.features = protein.features.shiftedForDeletion(deleteStart: deletePos,
+                                                                   deleteEnd: selectionStart,
+                                                                   sequenceLength: lengthBeforeEdit)
             selectionStart = deletePos
             selectionEnd = deletePos
         }
     }
-    
+
     private func doPaste() {
         guard !isLocked else { showLockedWarning = true; return }
         guard let clip = NSPasteboard.general.string(forType: .string) else { return }
         let cleaned = String(clip.filter { validAA.contains($0) })
         guard !cleaned.isEmpty else { return }
+        let lengthBeforeEdit = seqString.count
+        let safeEnd = min(selectionEnd, lengthBeforeEdit)
         let before = String(seqString.prefix(selectionStart))
-        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: min(selectionEnd, seqString.count))))
+        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeEnd)))
         protein.sequence = before + cleaned + after
+        protein.features = protein.features.shiftedForReplacement(replaceStart: selectionStart,
+                                                                  replaceEnd: safeEnd,
+                                                                  insertedLength: cleaned.count,
+                                                                  sequenceLength: lengthBeforeEdit)
         selectionStart = selectionStart + cleaned.count
         selectionEnd = selectionStart
     }
-    
+
     private func doInsertText(_ text: String) {
         guard !isLocked else { showLockedWarning = true; return }
         let cleaned = String(text.filter { validAA.contains($0) })
         guard !cleaned.isEmpty else { return }
         let insertPos = selectionStart
+        let lengthBeforeEdit = seqString.count
+        let safeEnd = min(selectionEnd, lengthBeforeEdit)
         let before = String(seqString.prefix(selectionStart))
-        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: min(selectionEnd, seqString.count))))
+        let after = String(seqString.suffix(from: seqString.index(seqString.startIndex, offsetBy: safeEnd)))
         protein.sequence = before + cleaned + after
+        protein.features = protein.features.shiftedForReplacement(replaceStart: insertPos,
+                                                                  replaceEnd: safeEnd,
+                                                                  insertedLength: cleaned.count,
+                                                                  sequenceLength: lengthBeforeEdit)
         selectionStart = insertPos + cleaned.count
         selectionEnd = selectionStart
     }
-    
+
     private func doMoveCursor(_ direction: Int) {
         if direction < 0 {
             let newPos = max(0, selectionStart - 1)
@@ -1024,6 +1047,9 @@ struct ProteinWindowCloseGuard: NSViewRepresentable {
         
         func attach(to window: NSWindow, protein: ProteinSequence) {
             self.protein = protein
+            // Record which protein this window shows — see DocumentWindowID in
+            // SequenceManager.swift.
+            DocumentWindowID.stamp(window, proteinID: protein.id)
             if window.delegate !== self {
                 self.originalDelegate = window.delegate
                 window.delegate = self

@@ -66,6 +66,94 @@ let standardMarkers: [MWMarker] = [
 ]
 
 
+// MARK: - Gel Migration Model
+
+/// Models how far a fragment runs on an agarose gel of a given strength, and
+/// hence which bands are far enough apart to be told apart.
+///
+/// This is an EMPIRICAL model, not a physical simulation. Real migration also
+/// depends on voltage, buffer, run time, agarose brand and how the gel was
+/// poured. What it is meant to get right is the relative question that matters
+/// at the bench: on a gel of this strength, will these two bands separate?
+///
+/// Each concentration resolves a particular size window well. Fragments larger
+/// than the window pile up near the well; fragments smaller than it run down
+/// near the dye front. Within the window, separation is roughly linear in
+/// log(size) — which is why the resolving windows below, taken from standard
+/// agarose tables, are all this needs.
+enum GelModel {
+
+    /// Size range (bp) each agarose concentration resolves well.
+    /// Standard molecular-biology-grade agarose.
+    private static let resolvingWindows: [(percent: Double, low: Double, high: Double)] = [
+        (0.5,  1000, 30000),
+        (0.7,   800, 12000),
+        (1.0,   500, 10000),
+        (1.2,   400,  7000),
+        (1.5,   200,  3000),
+        (2.0,    50,  2000)
+    ]
+
+    /// The resolving window at an arbitrary concentration, interpolated in
+    /// log-space between the tabulated values.
+    static func resolvingWindow(atPercent percent: Double) -> (low: Double, high: Double) {
+        let table = resolvingWindows
+        guard let first = table.first, let last = table.last else { return (50, 20000) }
+        if percent <= first.percent { return (first.low, first.high) }
+        if percent >= last.percent  { return (last.low,  last.high) }
+
+        for i in 0 ..< (table.count - 1) {
+            let a = table[i], b = table[i + 1]
+            guard percent >= a.percent, percent <= b.percent else { continue }
+            let t = (percent - a.percent) / (b.percent - a.percent)
+            func lerpLog(_ x: Double, _ y: Double) -> Double {
+                pow(10, log10(x) + t * (log10(y) - log10(x)))
+            }
+            return (lerpLog(a.low, b.low), lerpLog(a.high, b.high))
+        }
+        return (last.low, last.high)
+    }
+
+    /// How far down the gel a fragment runs, as a fraction from 0 (in the well)
+    /// to 1 (at the dye front).
+    ///
+    /// A logistic curve in log(size), centred on the middle of the resolving
+    /// window. Inside the window it is close to linear in log(size), which is
+    /// the familiar behaviour; outside it flattens, reproducing the compression
+    /// of large fragments near the well and small ones at the front.
+    static func migrationFraction(bp: Int, percent: Double) -> Double {
+        let window = resolvingWindow(atPercent: percent)
+        let logHigh = log10(window.high)
+        let logLow  = log10(window.low)
+        let logBP   = log10(Double(max(bp, 1)))
+
+        // 0 at the top of the window, 1 at the bottom of it.
+        let u = (logHigh - logBP) / max(logHigh - logLow, 0.0001)
+
+        // Steepness. 6 puts the window edges at ~5% and ~95% of the run, leaving
+        // a little of the gel beyond each edge for out-of-range fragments.
+        let steepness = 6.0
+        return 1.0 / (1.0 + exp(-steepness * (u - 0.5)))
+    }
+
+    /// Smallest difference in migration fraction that reads as two separate
+    /// bands rather than one thick one.
+    ///
+    /// Calibrated against the fixed rule this replaces: on a 1% gel, two bands
+    /// in the middle of the resolving range differing by 5% in size come out
+    /// around 0.024 apart, and the old code called anything under 5% co-migrating.
+    /// So 0.02 keeps the default gel behaving much as before, while now varying
+    /// correctly with concentration and with where the bands sit on the gel.
+    static let minResolvableSeparation: Double = 0.02
+
+    /// Can two fragments be told apart on a gel of this strength?
+    static func areResolvable(_ a: Int, _ b: Int, percent: Double) -> Bool {
+        abs(migrationFraction(bp: a, percent: percent)
+            - migrationFraction(bp: b, percent: percent)) >= minResolvableSeparation
+    }
+}
+
+
 // MARK: - Digest Lane
 
 struct DigestLane: Identifiable {
@@ -132,6 +220,9 @@ struct VirtualCutterView: View {
     // Display enhancements
     @State private var showBandLabels: Bool = false
     @State private var minFragmentBP: Double = 0
+    /// Agarose concentration (% w/v) used to model band migration and to decide
+    /// which bands are resolvable. See GelModel.
+    @State private var agarosePercent: Double = 1.0
     
     // Print orientation
     @State private var printLandscape: Bool = true
@@ -312,6 +403,26 @@ struct VirtualCutterView: View {
                             Text("Hiding fragments < \(Int(minFragmentBP)) bp")
                                 .font(.system(size: 10))
                                 .foregroundColor(.orange)
+                        }
+                    }
+
+                    // Agarose strength. Changes where bands run and, with it,
+                    // which bands are close enough to merge — so it can be used
+                    // to find a gel that separates a troublesome pair.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(format: "Gel strength: %.1f%% agarose", agarosePercent))
+                            .font(.caption)
+                        Slider(value: $agarosePercent, in: 0.5...2.0, step: 0.1)
+                            .contextHelp("vcutter.gelStrength")
+                        let window = GelModel.resolvingWindow(atPercent: agarosePercent)
+                        Text("Resolves \(formatBP(Int(window.low)))–\(formatBP(Int(window.high)))")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                        if let advice = gelStrengthAdvice() {
+                            Text(advice)
+                                .font(.system(size: 10))
+                                .foregroundColor(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -542,10 +653,11 @@ struct VirtualCutterView: View {
         let leftOffset = markerLabelSpace + (width - markerLabelSpace - totalLanesWidth) / 2
         
         let allFragments = selectedMarker.fragments + lanes.flatMap { $0.fragments }
-        let minBP = max(50, (allFragments.min() ?? 100) / 2)
-        let maxBP = max(25000, (allFragments.max() ?? 23130) * 2)
-        let logMin = log10(Double(minBP))
-        let logMax = log10(Double(maxBP))
+        // Band positions come from GelModel, which is driven by the agarose
+        // concentration rather than by the range of fragments present. The gel
+        // no longer rescales itself to fit whatever was loaded — a 5 kb band
+        // sits where a 5 kb band sits on a gel of this strength, which is what
+        // makes comparing strengths meaningful.
         
         let headerHeight: CGFloat = (showEnzymeInLabel && laneLabelStyle != .full) ? 62 : 36
         let wellHeight: CGFloat = 12
@@ -554,8 +666,7 @@ struct VirtualCutterView: View {
         let gelRunHeight = height - topMargin - bottomMargin
         
         func yForBP(_ bp: Int) -> CGFloat {
-            let logBP = log10(Double(max(bp, 1)))
-            let fraction = (logMax - logBP) / (logMax - logMin)
+            let fraction = GelModel.migrationFraction(bp: bp, percent: agarosePercent)
             return topMargin + CGFloat(fraction) * gelRunHeight
         }
         
@@ -919,7 +1030,13 @@ struct VirtualCutterView: View {
             for enzymeName in selectedEnzymes.sorted() {
                 if let enzyme = enzymeDB.enzymes.first(where: { $0.name == enzymeName }) {
                     let sites = enzyme.findCutSites(in: seqStr, circular: isCircular)
-                    let positions = sites.map { $0.position + enzyme.cutPosition5Prime }
+                    // Ask the CutSite for its cut coordinate rather than adding the
+                    // enzyme's offset to the recognition-site position by hand.
+                    // The hand-rolled version ignored strand, so a Type IIS enzyme
+                    // sitting on the reverse strand — which cuts UPSTREAM of its
+                    // recognition site — had its cut placed on the wrong side,
+                    // giving wrong fragment sizes.
+                    let positions = sites.map { $0.cutPosition5Prime }
                         .map { pos in ((pos % seqLen) + seqLen) % seqLen }
                     let uniquePositions = Array(Set(positions)).sorted()
                     
@@ -1029,40 +1146,13 @@ struct VirtualCutterView: View {
         buildReport()
     }
     
+    /// Delegates to DigestCalculator (RestrictionEnzyme.swift), the single
+    /// implementation of this calculation. Behaviour here is unchanged — this
+    /// copy was already correct; two others had drifted.
     private func computeFragments(cutPositions: [Int], seqLen: Int, circular: Bool) -> [Int] {
-        guard !cutPositions.isEmpty else { return [seqLen] }
-        
-        let sorted = cutPositions.sorted()
-        var fragments: [Int] = []
-        
-        if circular {
-            // Circular: fragments between consecutive cuts, wrapping around
-            for i in 0..<sorted.count {
-                let next = (i + 1) % sorted.count
-                var size: Int
-                if next > i {
-                    size = sorted[next] - sorted[i]
-                } else {
-                    // Wraps around origin
-                    size = (seqLen - sorted[i]) + sorted[next]
-                }
-                if size > 0 { fragments.append(size) }
-            }
-        } else {
-            // Linear: fragment before first cut, between cuts, after last cut
-            if sorted[0] > 0 {
-                fragments.append(sorted[0])
-            }
-            for i in 0..<sorted.count - 1 {
-                let size = sorted[i + 1] - sorted[i]
-                if size > 0 { fragments.append(size) }
-            }
-            if sorted.last! < seqLen {
-                fragments.append(seqLen - sorted.last!)
-            }
-        }
-        
-        return fragments.filter { $0 > 0 }
+        DigestCalculator.fragmentSizes(cutPositions: cutPositions,
+                                       sequenceLength: seqLen,
+                                       circular: circular)
     }
     
     
@@ -1201,25 +1291,74 @@ struct VirtualCutterView: View {
         return lane.fragments.filter { $0 >= threshold }
     }
     
-    /// Returns a warning string if two or more fragments in this lane are so close
-    /// in size (within 5%) that they would likely appear as a single band on a real gel.
-    private func coMigratingWarning(for lane: DigestLane) -> String? {
-        let frags = visibleFragments(for: lane).sorted(by: >)
-        guard frags.count > 1 else { return nil }
-        var visibleCount = 0
+    /// How many separate bands this lane would actually show on a gel of the
+    /// given strength, counting fragments that run too close together as one.
+    ///
+    /// This used to use a fixed rule — anything within 5% in size was called
+    /// co-migrating, on every gel. That ignores the two things that decide it in
+    /// practice: the agarose concentration, and whereabouts on the gel the bands
+    /// sit. Two fragments 5% apart separate cleanly in the middle of a gel's
+    /// resolving range and not at all when both are compressed against the well.
+    /// Asking GelModel how far apart they actually run handles both.
+    private func distinctBandCount(_ fragments: [Int], percent: Double) -> Int {
+        let frags = fragments.sorted(by: >)
+        guard !frags.isEmpty else { return 0 }
+        var count = 0
         var i = 0
         while i < frags.count {
-            visibleCount += 1
+            count += 1
             var j = i + 1
-            while j < frags.count &&
-                  Double(abs(frags[j] - frags[i])) / Double(frags[i]) < 0.05 {
+            while j < frags.count && !GelModel.areResolvable(frags[i], frags[j], percent: percent) {
                 j += 1
             }
             i = j
         }
+        return count
+    }
+
+    /// Returns a warning if fragments in this lane would merge into fewer bands
+    /// than there are fragments, at the currently selected gel strength.
+    private func coMigratingWarning(for lane: DigestLane) -> String? {
+        let frags = visibleFragments(for: lane)
+        guard frags.count > 1 else { return nil }
+        let visibleCount = distinctBandCount(frags, percent: agarosePercent)
         let hidden = frags.count - visibleCount
         guard hidden > 0 else { return nil }
         return "⚠ \(hidden) co-migrating fragment\(hidden > 1 ? "s" : "") — \(visibleCount) visible band\(visibleCount != 1 ? "s" : "") expected"
+    }
+
+    /// Suggests a better agarose strength when the current one merges bands that
+    /// another strength in range would separate.
+    ///
+    /// Only speaks up when it can offer a strictly better gel, so it stays quiet
+    /// for digests where nothing helps — some fragment pairs are simply too close
+    /// in size to separate on any agarose gel.
+    private func gelStrengthAdvice() -> String? {
+        let allFragments = lanes.map { visibleFragments(for: $0) }.filter { $0.count > 1 }
+        guard !allFragments.isEmpty else { return nil }
+
+        func mergedBands(at percent: Double) -> Int {
+            allFragments.reduce(0) { $0 + ($1.count - distinctBandCount($1, percent: percent)) }
+        }
+
+        let current = mergedBands(at: agarosePercent)
+        guard current > 0 else { return nil }
+
+        var best = (percent: agarosePercent, merged: current)
+        var candidate = 0.5
+        while candidate <= 2.0001 {
+            let merged = mergedBands(at: candidate)
+            if merged < best.merged { best = (candidate, merged) }
+            candidate += 0.1
+        }
+
+        guard best.percent != agarosePercent else {
+            return "No strength in range separates these — the sizes are too close."
+        }
+        return String(format: "A %.1f%% gel would separate %d more band%@.",
+                      best.percent,
+                      current - best.merged,
+                      (current - best.merged) == 1 ? "" : "s")
     }
     
     /// Copy the rendered gel image to the system clipboard.

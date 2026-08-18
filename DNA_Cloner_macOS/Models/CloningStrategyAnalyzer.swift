@@ -308,9 +308,34 @@ class CloningStrategyAnalyzer {
         let sourceSeq = sourceSequence.uppercased()
         let insertSeq = insertRegion.extractSequence(from: sourceSeq, circular: sourceIsCircular)
         let insertLen = insertSeq.count
-        
+
+        // MARK: Type IIS enzymes are not usable by this analyzer
+        //
+        // Every strategy built here rests on knowing an enzyme's overhang in
+        // advance, so it can decide whether two cut ends will ligate. A Type IIS
+        // enzyme (BsaI, BsmBI, BbsI, SapI …) cuts a fixed distance OUTSIDE its
+        // recognition site, so its overhang is whatever sequence happens to sit
+        // at the cut — a property of the target, not of the enzyme. "Will these
+        // ends ligate?" therefore has no answer in the abstract, which is why
+        // RestrictionEnzyme.producesEndsCompatible(with:) already refuses to
+        // pair them.
+        //
+        // The paths this analyzer models (direct digest, blunt ligation, PCR
+        // with restriction tails) are all digest-and-ligate. Golden Gate
+        // assembly — where these enzymes belong, and where the sequence-derived
+        // overhang is the whole point — would need its own path with overhangs
+        // read from the target. Until that exists, offering Type IIS strategies
+        // here would mean presenting confident advice the model cannot support.
+        //
+        // Shadowing the parameter keeps every use below unchanged.
+        let excludedTypeIIS = enzymes.filter { $0.cutsOutsideSite }.map(\.name)
+        let enzymes = enzymes.filter { !$0.cutsOutsideSite }
+
         // Reset diagnostic log for this run.
         lastDiagnostic = []
+        if !excludedTypeIIS.isEmpty {
+            lastDiagnostic.append("Excluded \(excludedTypeIIS.count) Type IIS enzyme(s) — they cut outside their recognition site, so their overhang depends on the target sequence and cannot be matched: \(excludedTypeIIS.sorted().joined(separator: ", "))")
+        }
         lastDiagnostic.append("Vector length: \(vectorSeq.count) bp, circular: \(vectorIsCircular)")
         if let r = cloningRegionRange {
             if r.upperBound >= vectorSeq.count {
@@ -2144,10 +2169,12 @@ class CloningStrategyAnalyzer {
     // MARK: Helpers
     // =========================================================================
     
+    /// Delegates to the canonical implementation on RestrictionEnzyme, which
+    /// also excludes Type IIS enzymes — their overhangs depend on the target
+    /// sequence, so two of them are not compatible in the abstract. The old
+    /// inline version compared two empty strings and said "yes".
     func endsAreCompatible(_ e1: RestrictionEnzyme, _ e2: RestrictionEnzyme) -> Bool {
-        if e1.overhangType == .blunt && e2.overhangType == .blunt { return true }
-        guard e1.overhangType == e2.overhangType else { return false }
-        return e1.overhangSequence == e2.overhangSequence
+        e1.producesEndsCompatible(with: e2)
     }
     
     /// Check whether the segment that would be excised (between the two cut sites)

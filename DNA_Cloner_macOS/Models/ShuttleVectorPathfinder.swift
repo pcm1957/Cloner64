@@ -66,6 +66,18 @@ class ShuttleVectorPathfinder {
     
     private let enzymeDB = RestrictionEnzymeDatabase.shared
     private let vectorLibrary = ShuttleVectorLibrary.shared
+
+    /// Enzymes this pathfinder can reason about.
+    ///
+    /// Excludes Type IIS enzymes (BsaI, BsmBI, BbsI, SapI …) for the same reason
+    /// CloningStrategyAnalyzer does: every route here is direct-digest, and
+    /// matching cut ends requires knowing the overhang in advance. A Type IIS
+    /// enzyme cuts outside its recognition site, so its overhang belongs to the
+    /// target sequence rather than the enzyme, and cannot be matched. Golden
+    /// Gate assembly would need a separate path built around that fact.
+    private var usableEnzymes: [RestrictionEnzyme] {
+        enzymeDB.enzymes.filter { !$0.cutsOutsideSite }
+    }
     
     /// Maximum routes to return (prevents combinatorial explosion in the UI)
     private let maxRoutes = 50
@@ -90,7 +102,7 @@ class ShuttleVectorPathfinder {
         
         // --- Step 1: Find enzymes flanking the insert on the source (done ONCE) ---
         var sourceSitesByEnzyme: [String: [CutSite]] = [:]
-        for enzyme in enzymeDB.enzymes {
+        for enzyme in usableEnzymes {
             let sites = enzyme.findCutSites(in: sourceSeq, circular: sourceIsCircular)
             if !sites.isEmpty { sourceSitesByEnzyme[enzyme.name] = sites }
         }
@@ -130,7 +142,7 @@ class ShuttleVectorPathfinder {
         var destCutCounts: [String: Int] = [:]
         var destCutPositions: [String: [Int]] = [:]
         if let destSeq = destinationSequence?.uppercased() {
-            for enzyme in enzymeDB.enzymes {
+            for enzyme in usableEnzymes {
                 let sites = enzyme.findCutSites(in: destSeq, circular: destinationIsCircular)
                 if !sites.isEmpty {
                     let positions = sites.map { $0.position }
@@ -504,9 +516,11 @@ class ShuttleVectorPathfinder {
             ?? enzymeDB.enzymes.first(where: { $0.name.components(separatedBy: "/").contains(name) })
     }
     
+    /// Delegates to the canonical implementation on RestrictionEnzyme, which
+    /// also excludes Type IIS enzymes — their overhangs depend on the target
+    /// sequence, so two of them are not compatible in the abstract. The old
+    /// inline version compared two empty strings and said "yes".
     private func areCompatible(_ e1: RestrictionEnzyme, _ e2: RestrictionEnzyme) -> Bool {
-        if e1.overhangType == .blunt && e2.overhangType == .blunt { return true }
-        guard e1.overhangType == e2.overhangType else { return false }
-        return e1.overhangSequence == e2.overhangSequence
+        e1.producesEndsCompatible(with: e2)
     }
 }

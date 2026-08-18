@@ -30,7 +30,7 @@ struct WelcomeView: View {
 
                 // Text and buttons on the right
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Cloner 64 v1.0")
+                    Text("Cloner 64 v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""))
                         .font(.system(size: 28, weight: .bold))
 
                     Text("Cloner 64 is a DNA cloning analysis app that replicates the look and ease of use of Serial Cloner, but will run on 64 bit Macs. It will run xdna, xprt, SnapGene, GenBank, APE, and FASTA files.")

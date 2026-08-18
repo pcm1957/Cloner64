@@ -8,6 +8,29 @@
 
 import Foundation
 
+// MARK: - Safe case folding for sequence characters
+
+extension Character {
+    /// Uppercase form for comparing sequence residues, guaranteed to remain a
+    /// single Character.
+    ///
+    /// The idiom this replaces — `Character(String(c).uppercased())` — CRASHES
+    /// whenever uppercasing yields more than one character, because
+    /// `Character(_: String)` traps unless the string holds exactly one. The
+    /// classic case is "ß", which uppercases to "SS", but ligatures such as "ﬁ"
+    /// behave the same way. Those characters reach this code easily: a sequence
+    /// pasted from a Word document, a PDF or a web page can carry them, and the
+    /// alignment views fold case on every residue they are given.
+    ///
+    /// DNA and protein sequences only ever need ASCII folding, so anything that
+    /// is not a lower-case ASCII letter is returned untouched — no allocation,
+    /// no Unicode expansion, and no way to trap.
+    var sequenceUppercased: Character {
+        guard let ascii = asciiValue, ascii >= 97, ascii <= 122 else { return self }
+        return Character(UnicodeScalar(ascii - 32))
+    }
+}
+
 // MARK: - Result
 
 struct AlignmentResult {
@@ -17,7 +40,7 @@ struct AlignmentResult {
     
     var matches: Int {
         zip(alignedSeq1, alignedSeq2).filter { a, b in
-            a != "-" && b != "-" && Character(String(a).uppercased()) == Character(String(b).uppercased())
+            a != "-" && b != "-" && a.sequenceUppercased == b.sequenceUppercased
         }.count
     }
     
@@ -53,8 +76,8 @@ class SequenceAligner {
         if antiParallel1 { s1 = revComp(s1) }
         if antiParallel2 { s2 = revComp(s2) }
         
-        let u1 = s1.map { Character(String($0).uppercased()) }
-        let u2 = s2.map { Character(String($0).uppercased()) }
+        let u1 = s1.map { $0.sequenceUppercased }
+        let u2 = s2.map { $0.sequenceUppercased }
         let n = u1.count, m = u2.count
         
         guard n > 0 && m > 0 else {
