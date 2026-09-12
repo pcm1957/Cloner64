@@ -8,6 +8,7 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct RestrictionEnzymeListView: View {
     @ObservedObject private var db = RestrictionEnzymeDatabase.shared
@@ -87,8 +88,11 @@ struct RestrictionEnzymeListView: View {
                 
                 Spacer()
                 
+                // myEnzymeCount, not myEnzymeNames.count — see the note on
+                // that property. A starred name can outlive its enzyme, and
+                // counting names made this read higher than the rows below.
                 Text(showOnlyMyEnzymes
-                     ? "\(db.myEnzymeNames.count) of \(db.enzymes.count) enzymes"
+                     ? "\(db.myEnzymeCount) of \(db.enzymes.count) enzymes"
                      : "\(db.enzymes.count) enzymes")
                     .font(.caption).foregroundColor(.secondary)
                 
@@ -104,6 +108,24 @@ struct RestrictionEnzymeListView: View {
                 .controlSize(.small)
                 .disabled(selectedEnzymeID == nil)
                 .contextHelp("enzlist.delete")
+
+                // Export / Import / Restore. Enzymes you add or edit are saved
+                // automatically; these are for moving them between machines,
+                // sharing them, or backing them up.
+                Menu {
+                    Button("Export My Enzymes…") { exportEnzymes() }
+                        .disabled(!db.hasCustomisations && db.myEnzymeNames.isEmpty)
+                    Button("Import Enzymes…") { importEnzymes() }
+                    Divider()
+                    Button("Restore Built-in Defaults…") { confirmRestoreDefaults() }
+                        .disabled(!db.hasCustomisations)
+                } label: {
+                    Label("Enzyme File", systemImage: "square.and.arrow.up.on.square")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .controlSize(.small)
+                .contextHelp("enzlist.file")
             }
             .padding(10)
             .background(Color(NSColor.windowBackgroundColor))
@@ -149,6 +171,18 @@ struct RestrictionEnzymeListView: View {
                 Text("Double-click to edit • Click ★ to add to My Enzymes (freezer stock)")
                     .font(.caption).foregroundColor(.secondary)
                 Spacer()
+                if let problem = db.storeError {
+                    // A silent save failure would look exactly like a working
+                    // app until the user quit and lost the lot, so say so.
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
+                        .help(problem)
+                } else if db.hasCustomisations {
+                    Text("Your changes are saved automatically")
+                        .font(.caption).foregroundColor(.secondary)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
@@ -233,6 +267,94 @@ struct RestrictionEnzymeListView: View {
         db.removeEnzyme(id: id)
         selectedEnzymeID = nil
     }
+
+    // MARK: - Export / Import
+
+    private var enzymeFileType: UTType {
+        UTType(filenameExtension: EnzymeStore.fileExtension) ?? .json
+    }
+
+    private func exportEnzymes() {
+        let panel = NSSavePanel()
+        panel.title = "Export My Enzymes"
+        panel.message = "Saves the enzymes you have added, edited or deleted — "
+                      + "not the whole built-in list."
+        panel.nameFieldStringValue = "My Enzymes.\(EnzymeStore.fileExtension)"
+        panel.allowedContentTypes = [enzymeFileType]
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try EnzymeStore.write(db.currentOverlay, to: url)
+        } catch {
+            showAlert(style: .warning, title: "Export failed",
+                      text: error.localizedDescription)
+        }
+    }
+
+    private func importEnzymes() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Enzymes"
+        panel.allowedContentTypes = [enzymeFileType, .json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let incoming: EnzymeOverlay
+        do {
+            incoming = try EnzymeStore.read(from: url)
+        } catch {
+            showAlert(style: .warning, title: "Could not read that file",
+                      text: error.localizedDescription)
+            return
+        }
+
+        let summary = "\(incoming.added.count) added, "
+                    + "\(incoming.edited.count) edited, "
+                    + "\(incoming.deleted.count) deleted."
+
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Import enzymes?"
+        alert.informativeText = "That file contains \(summary)\n\n"
+            + "Merge keeps what you already have and adds these on top. "
+            + "Replace discards your current additions and edits first."
+        alert.addButton(withTitle: "Merge")
+        alert.addButton(withTitle: "Replace")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:  db.mergeCustomisations(with: incoming)
+        case .alertSecondButtonReturn: db.replaceCustomisations(with: incoming)
+        default: return
+        }
+    }
+
+    private func confirmRestoreDefaults() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Restore the built-in enzyme list?"
+        alert.informativeText = "Every enzyme you have added or edited will be discarded, "
+            + "and any built-in enzyme you deleted will come back. "
+            + "Your ★ My Enzymes list is not affected.\n\n"
+            + "Export first if you want to keep your changes. This cannot be undone."
+        alert.addButton(withTitle: "Restore Defaults")
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            db.restoreBuiltInDefaults()
+            selectedEnzymeID = nil
+        }
+    }
+
+    private func showAlert(style: NSAlert.Style, title: String, text: String) {
+        let alert = NSAlert()
+        alert.alertStyle = style
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
 }
 
 
@@ -253,7 +375,8 @@ struct EnzymeEditSheet: View {
     
     let mode: Mode
     let onSave: (RestrictionEnzyme) -> Void
-    
+
+    @ObservedObject private var db = RestrictionEnzymeDatabase.shared
     @Environment(\.dismiss) private var dismiss
     
     @State private var name: String = ""
@@ -277,13 +400,116 @@ struct EnzymeEditSheet: View {
         }
     }
     
-    private var isValid: Bool {
-        !name.isEmpty &&
-        !recognitionSite.isEmpty &&
-        recognitionSite.uppercased().allSatisfy({ "ACGTRYSWKMBDHVN".contains($0) }) &&
-        Int(cut5) != nil &&
-        Int(cut3) != nil
+    // MARK: - Validation
+    //
+    // The old check only asked "are these fields filled in?". That let AccI be
+    // saved as GTMKAC 1/5 — a 4-base overhang, where the real enzyme leaves 2 —
+    // with nothing on screen to suggest anything was wrong. These checks cannot
+    // know what an enzyme really does, but they can catch entries that
+    // contradict themselves, and the live diagram below shows the rest.
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private var cleanSite: String {
+        recognitionSite.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var siteIsWellFormed: Bool {
+        !cleanSite.isEmpty && cleanSite.allSatisfy { "ACGTRYSWKMBDHVN".contains($0) }
+    }
+
+    /// Blocking problems — the Save button stays disabled while any exist.
+    private var errors: [String] {
+        var found: [String] = []
+
+        if trimmedName.isEmpty {
+            found.append("Give the enzyme a name.")
+        } else if let clash = duplicateName {
+            found.append("There is already an enzyme called \(clash).")
+        }
+
+        if cleanSite.isEmpty {
+            found.append("Enter a recognition site.")
+        } else if !siteIsWellFormed {
+            found.append("The site may only contain A C G T and the IUPAC codes R Y S W K M B D H V N.")
+        }
+
+        if Int(cut5) == nil { found.append("Cut 5' must be a whole number.") }
+        if Int(cut3) == nil { found.append("Cut 3' must be a whole number.") }
+
+        guard let c5 = Int(cut5), let c3 = Int(cut3), siteIsWellFormed else { return found }
+
+        if c5 < 0 || c3 < 0 {
+            found.append("Cut positions cannot be negative.")
+        }
+
+        // A blunt cutter must cut both strands at the same point, and a sticky
+        // one must not. Getting this wrong makes the enzyme silently unusable
+        // for ligation planning.
+        switch overhangType {
+        case .blunt where c5 != c3:
+            found.append("Blunt ends need Cut 5' and Cut 3' to be equal — you have \(c5) and \(c3).")
+        case .sticky5Prime where c5 >= c3:
+            found.append("A 5' overhang needs Cut 5' to be less than Cut 3' — you have \(c5) and \(c3). "
+                       + "Did you mean a 3' overhang?")
+        case .sticky3Prime where c5 <= c3:
+            found.append("A 3' overhang needs Cut 5' to be greater than Cut 3' — you have \(c5) and \(c3). "
+                       + "Did you mean a 5' overhang?")
+        default:
+            break
+        }
+
+        return found
+    }
+
+    /// Non-blocking observations — worth reading before you press Save.
+    private var warnings: [String] {
+        guard errors.isEmpty, let c5 = Int(cut5), let c3 = Int(cut3) else { return [] }
+        var found: [String] = []
+        let n = cleanSite.count
+
+        if c5 > n || c3 > n {
+            found.append("A cut lies outside the recognition site, so this will be treated as a "
+                       + "Type IIS enzyme. Its overhang will be read from the target sequence.")
+        }
+
+        if cleanSite != RestrictionEnzyme.iupacReverseComplement(cleanSite) {
+            found.append("This site is not palindromic, so the app will search both strands separately. "
+                       + "That is correct for enzymes like SapI, but it is also what a typing slip "
+                       + "looks like — worth a second look.")
+        } else if c5 <= n && c3 <= n && c3 != n - c5 {
+            // For a palindromic site the two cuts must be mirror images.
+            found.append("For a palindromic site of \(n) bases cut at \(c5), the other strand is "
+                       + "normally cut at \(n - c5), not \(c3). Check against REBASE.")
+        }
+
+        let overhang = previewEnzyme?.overhangSequence ?? ""
+        if !overhang.isEmpty && overhang.contains(where: { !"ACGT".contains($0) }) {
+            found.append("The overhang (\(overhang)) contains ambiguity codes, so its actual bases "
+                       + "depend on the sequence cut. Predictive Cloning will not match these ends.")
+        }
+
+        return found
+    }
+
+    /// An existing enzyme with the same name, if any (ignoring the one being edited).
+    private var duplicateName: String? {
+        let editingID: UUID? = { if case .edit(let e) = mode { return e.id } else { return nil } }()
+        return db.enzymes.first {
+            $0.id != editingID && $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame
+        }?.name
+    }
+
+    private var previewEnzyme: RestrictionEnzyme? {
+        guard errors.isEmpty, let c5 = Int(cut5), let c3 = Int(cut3) else { return nil }
+        return RestrictionEnzyme(name: trimmedName, recognitionSite: cleanSite,
+                                 cutPosition5Prime: c5, cutPosition3Prime: c3,
+                                 overhangType: overhangType)
+    }
+
+    private var isValid: Bool { errors.isEmpty }
     
     var body: some View {
         VStack(spacing: 16) {
@@ -323,22 +549,55 @@ struct EnzymeEditSheet: View {
                 Text("e.g. dam blocked, dcm impaired, CpG blocked")
                     .font(.caption2).foregroundColor(.secondary)
                 
-                if isValid {
-                    let preview = RestrictionEnzyme(
-                        name: name, recognitionSite: recognitionSite.uppercased(),
-                        cutPosition5Prime: Int(cut5)!, cutPosition3Prime: Int(cut3)!,
-                        overhangType: overhangType)
-                    // A Type IIS enzyme cuts outside its recognition site, so its
-                    // overhang depends on the target and cannot be previewed here.
-                    // Without this branch the preview just said "none (blunt)",
-                    // which is wrong and misleading for a sticky-end enzyme.
-                    if preview.cutsOutsideSite {
-                        Text("Cuts outside the recognition site (Type IIS) — "
-                             + "\(preview.overhangLength)-base overhang, sequence depends on the target")
+                if let preview = previewEnzyme {
+                    Divider()
+
+                    // Show the actual cut, on both strands, as it is typed.
+                    // A wrong overhang length is obvious here in a way that two
+                    // numbers in two text fields never are.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("This is what you are describing:")
                             .font(.caption).foregroundColor(.secondary)
-                    } else {
-                        Text("Overhang sequence: \(preview.overhangSequence.isEmpty ? "none (blunt)" : preview.overhangSequence)")
-                            .font(.caption).foregroundColor(.secondary).fontDesign(.monospaced)
+                        OverhangDiagramView(enzyme: preview)
+
+                        // A Type IIS enzyme cuts outside its recognition site, so
+                        // its overhang depends on the target and cannot be shown.
+                        if preview.cutsOutsideSite {
+                            Text("Cuts outside the recognition site (Type IIS) — "
+                                 + "\(preview.overhangLength)-base overhang, sequence depends on the target")
+                                .font(.caption).foregroundColor(.secondary)
+                        } else if preview.overhangType == .blunt {
+                            Text("Blunt ends — no overhang")
+                                .font(.caption).foregroundColor(.secondary)
+                        } else {
+                            Text("\(preview.overhangLength)-base \(preview.overhangType.rawValue.lowercased()): "
+                                 + "\(preview.overhangSequence.isEmpty ? "—" : preview.overhangSequence)")
+                                .font(.caption).foregroundColor(.secondary).fontDesign(.monospaced)
+                        }
+                    }
+                }
+
+                if !warnings.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(warnings, id: \.self) { warning in
+                            Label(warning, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundColor(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+
+                if !errors.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(errors, id: \.self) { problem in
+                            Label(problem, systemImage: "xmark.octagon")
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
             }
@@ -349,16 +608,18 @@ struct EnzymeEditSheet: View {
                     .contextHelp("enzEdit.cancel")
                 Spacer()
                 Button(mode.isAdd ? "Add" : "Save") {
+                    guard let c5 = Int(cut5), let c3 = Int(cut3) else { return }
                     let id: UUID
                     if case .edit(let enzyme) = mode { id = enzyme.id } else { id = UUID() }
                     let enzyme = RestrictionEnzyme(
                         id: id,
-                        name: name,
-                        recognitionSite: recognitionSite.uppercased(),
-                        cutPosition5Prime: Int(cut5) ?? 0,
-                        cutPosition3Prime: Int(cut3) ?? 0,
+                        name: trimmedName,
+                        recognitionSite: cleanSite,
+                        cutPosition5Prime: c5,
+                        cutPosition3Prime: c3,
                         overhangType: overhangType,
                         methylationSensitivity: methylationSensitivity
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
                     )
                     onSave(enzyme)
                     dismiss()
@@ -369,7 +630,7 @@ struct EnzymeEditSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 400)
+        .frame(width: 460)
     }
 }
 
@@ -396,29 +657,19 @@ extension EnzymeEditSheet.Mode {
 struct OverhangDiagramView: View {
     let enzyme: RestrictionEnzyme
 
-    private static func rc(_ s: String) -> String {
-        let comp: [Character: Character] = [
-            "A":"T","T":"A","G":"C","C":"G",
-            "R":"Y","Y":"R","S":"S","W":"W",
-            "K":"M","M":"K","B":"V","V":"B",
-            "D":"H","H":"D","N":"N"
-        ]
-        return String(s.uppercased().reversed().map { comp[$0] ?? $0 })
-    }
-
     private var lines: (top: String, bot: String) {
         let site = enzyme.recognitionSite.uppercased()
         // Bottom strand shown L→R (3'→5'), complement of top strand base-by-base.
-        // Using complement (NOT reverse complement) means each base pairs directly
-        // under the base above it, and palindromic enzymes show different letters
-        // on each strand (e.g. AvrII CCTAGG → bottom shows GGATCC L→R).
-        let bot = String(site.uppercased().map { c -> Character in
-            switch c {
-            case "A": return "T"; case "T": return "A"
-            case "G": return "C"; case "C": return "G"
-            default:  return c
-            }
-        })
+        // Using complement (NOT reverse complement) means each base pairs
+        // directly under the base above it.
+        //
+        // This used to be a hand-written switch that handled only A/C/G/T and
+        // returned every other character unchanged, so degenerate codes were
+        // printed uncomplemented: AccI (GTMKAC) showed a lower strand of
+        // CAMKTG instead of CAKMTG, and AvaI (CYCGRG) showed GYGCRC instead of
+        // GRGCYC. M pairs with K and R pairs with Y, so both were wrong.
+        // It now goes through the one shared IUPAC table.
+        let bot = RestrictionEnzyme.iupacComplement(site)
         let n  = site.count
         let c5 = enzyme.cutPosition5Prime
         let c3 = enzyme.cutPosition3Prime
