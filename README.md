@@ -123,9 +123,10 @@ Design PCR Primers — Select a template and target region (or pick a feature/OR
 Run a PCR — In silico PCR simulation. Choose template, enter primers (with optional 5′ tails), select polymerase (Taq or Pfu). Predicts amplified product including Taq A-overhangs. Product saved as a new sequence.
 
 Alignment
-Pairwise DNA alignment (word-based seeding + banded Needleman-Wunsch)
-Pairwise protein alignment (BLOSUM62 scoring, Smith-Waterman)
-Colour-coded match display with identity/gap statistics
+Pairwise alignment of DNA and protein sequences in one window
+Gapped alignment — introns and insertions appear as clean gap blocks (e.g. cDNA vs genomic)
+Full-length or local (Smith-Waterman, best-matching region) alignment
+BLOSUM62 scoring for proteins, with identity and similarity statistics and chemical-class colour coding
 Protein Analysis
 Dedicated protein sequence viewer with Clustal-style colouring
 Properties panel: molecular weight, pI, extinction coefficient
@@ -173,7 +174,7 @@ Shortcut	Action
 ⇧⌘K	Build a Construct
 ⇧⌘D	Virtual Cutter
 ⇧⌘R	Run a PCR
-⇧⌘A	Align Two DNA Sequences
+⇧⌘A	Align Two Sequences
 ⇧⌘E	Export as FASTA
 ⌘P	Print
 ⇧⌘P	Page Setup
@@ -190,7 +191,7 @@ DNA_Cloner_macOS/
 ├── Managers/        Window managers and library extensions
 └── Resources/       Info.plist
 
-53 Swift source files • ~47,000 lines of code
+52 Swift source files • ~46,500 lines of code
 
 See SETUP.md for a complete file-by-file project structure reference.
 
@@ -198,7 +199,7 @@ Acknowledgements
 
 Inspired by Serial Cloner, created by Franck Perez, and by Christian Marcks's Strider — powerful molecular biology tools that shaped how a generation of biologists worked with DNA sequences.
 
-Version: 1.2
+Version: 1.3
 Last Updated: September 2026
 Platform: macOS 13.5+
 Language: Swift 5.7+
