@@ -152,14 +152,17 @@ struct AlignTwoSequencesView: View {
     
     // Alignment
     @State private var wordSize: Int = 15
+    @State private var alignmentMode: AlignmentMode = .auto
+    @State private var alignmentScope: AlignmentScope = .fullLength
     @State private var highlightDifferences = false
+    @State private var colorCoded = false
     @State private var showFeatures = true
     @State private var showFeatureList = false
     @State private var isAligning = false
     @State private var alignmentResult: AlignmentResult?
     @State private var alignmentAttrString: NSAttributedString?
     @State private var showLongAlignmentWarning = false
-    @State private var pendingAlignmentParams: (s1: String, s2: String, ws: Int, ap1: Bool, ap2: Bool)?
+    @State private var pendingAlignmentParams: (s1: String, s2: String, ws: Int, ap1: Bool, ap2: Bool, mode: AlignmentMode, scope: AlignmentScope)?
     
     // Display
     @State private var screenFontSize: CGFloat = 12
@@ -168,6 +171,52 @@ struct AlignTwoSequencesView: View {
     private let charsPerLine = 60
     /// Threshold above which we warn the user (product of lengths)
     private let longAlignmentThreshold = 50_000_000
+    
+    /// One selectable sequence — DNA sequences and protein sequences are
+    /// offered in the same pickers.
+    private struct SeqChoice {
+        let name: String          // raw name, used in headers
+        let displayName: String   // picker label
+        let sequence: String
+        let features: [Feature]
+        let isProtein: Bool       // true when sourced from proteinSequences
+        let subtitle: String      // length / MW line under the picker
+    }
+    
+    /// All open sequences: DNA first, then proteins.
+    private var seqChoices: [SeqChoice] {
+        var out: [SeqChoice] = []
+        for s in sequenceManager.sequences {
+            let len = s.sequence.filter(\.isLetter).count
+            out.append(SeqChoice(name: s.name, displayName: s.name,
+                                 sequence: s.sequence, features: s.features,
+                                 isProtein: false, subtitle: "\(len) bp"))
+        }
+        for p in sequenceManager.proteinSequences {
+            out.append(SeqChoice(name: p.name,
+                                 displayName: p.name + "  (protein)",
+                                 sequence: p.sequence, features: p.features,
+                                 isProtein: true,
+                                 subtitle: "\(p.length) aa, MW: \(p.formattedMW)"))
+        }
+        return out
+    }
+    
+    /// True when the current settings/selection mean protein alignment,
+    /// in which case DNA-only controls (anti-parallel, translation) are disabled.
+    private var proteinModeActive: Bool {
+        switch alignmentMode {
+        case .protein: return true
+        case .dna:     return false
+        case .auto:
+            let choices = seqChoices
+            let c1 = seq1Index < choices.count ? choices[seq1Index] : nil
+            let c2 = seq2Index < choices.count ? choices[seq2Index] : nil
+            if (c1?.isProtein ?? false) || (c2?.isProtein ?? false) { return true }
+            return SequenceAligner.looksLikeProtein(c1?.sequence ?? "")
+                || SequenceAligner.looksLikeProtein(c2?.sequence ?? "")
+        }
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -191,7 +240,8 @@ struct AlignTwoSequencesView: View {
             Button("Continue", role: .destructive) {
                 if let params = pendingAlignmentParams {
                     executeAlignment(s1: params.s1, s2: params.s2, ws: params.ws,
-                                     ap1: params.ap1, ap2: params.ap2)
+                                     ap1: params.ap1, ap2: params.ap2,
+                                     mode: params.mode, scope: params.scope)
                 }
                 pendingAlignmentParams = nil
             }
@@ -202,7 +252,7 @@ struct AlignTwoSequencesView: View {
             if let params = pendingAlignmentParams {
                 let len1 = params.s1.filter(\.isLetter).count
                 let len2 = params.s2.filter(\.isLetter).count
-                Text("Aligning \(len1) bp \u{00D7} \(len2) bp sequences may take a long time and use significant memory. Do you want to continue?")
+                Text("Aligning \(len1) \u{00D7} \(len2) residue sequences may take a long time and use significant memory. Do you want to continue?")
             }
         }
     }
@@ -218,13 +268,15 @@ struct AlignTwoSequencesView: View {
                     Spacer()
                     Toggle("anti-parallel", isOn: $antiParallel1)
                         .toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .contextHelp("align.antiParallel")
                 }
                 
+                let choices1 = seqChoices
                 Picker("", selection: $seq1Index) {
-                    ForEach(0..<max(1, sequenceManager.sequences.count), id: \.self) { idx in
-                        if idx < sequenceManager.sequences.count {
-                            Text(sequenceManager.sequences[idx].name)
+                    ForEach(0..<max(1, choices1.count), id: \.self) { idx in
+                        if idx < choices1.count {
+                            Text(choices1[idx].displayName)
                                 .tag(idx)
                         }
                     }
@@ -232,15 +284,24 @@ struct AlignTwoSequencesView: View {
                 .frame(maxWidth: 220)
                 .contextHelp("align.sequencePicker")
                 
+                if seq1Index < choices1.count {
+                    Text(choices1[seq1Index].subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
                 HStack(spacing: 6) {
                     Text("Translation :").font(.caption)
                     Toggle("Frame 1", isOn: $seq1Frame1).toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .onChange(of: seq1Frame1) { _ in rerender() }
                         .contextHelp("align.translation")
                     Toggle("Frame 2", isOn: $seq1Frame2).toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .onChange(of: seq1Frame2) { _ in rerender() }
                         .contextHelp("align.translation")
                     Toggle("Frame 3", isOn: $seq1Frame3).toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .onChange(of: seq1Frame3) { _ in rerender() }
                         .contextHelp("align.translation")
                 }
@@ -253,13 +314,15 @@ struct AlignTwoSequencesView: View {
                     Spacer()
                     Toggle("anti-parallel", isOn: $antiParallel2)
                         .toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .contextHelp("align.antiParallel")
                 }
                 
+                let choices2 = seqChoices
                 Picker("", selection: $seq2Index) {
-                    ForEach(0..<max(1, sequenceManager.sequences.count), id: \.self) { idx in
-                        if idx < sequenceManager.sequences.count {
-                            Text(sequenceManager.sequences[idx].name)
+                    ForEach(0..<max(1, choices2.count), id: \.self) { idx in
+                        if idx < choices2.count {
+                            Text(choices2[idx].displayName)
                                 .tag(idx)
                         }
                     }
@@ -267,15 +330,24 @@ struct AlignTwoSequencesView: View {
                 .frame(maxWidth: 220)
                 .contextHelp("align.sequencePicker")
                 
+                if seq2Index < choices2.count {
+                    Text(choices2[seq2Index].subtitle)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                
                 HStack(spacing: 6) {
                     Text("Translation :").font(.caption)
                     Toggle("Frame 1", isOn: $seq2Frame1).toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .onChange(of: seq2Frame1) { _ in rerender() }
                         .contextHelp("align.translation")
                     Toggle("Frame 2", isOn: $seq2Frame2).toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .onChange(of: seq2Frame2) { _ in rerender() }
                         .contextHelp("align.translation")
                     Toggle("Frame 3", isOn: $seq2Frame3).toggleStyle(.checkbox).font(.caption)
+                        .disabled(proteinModeActive)
                         .onChange(of: seq2Frame3) { _ in rerender() }
                         .contextHelp("align.translation")
                 }
@@ -291,6 +363,25 @@ struct AlignTwoSequencesView: View {
                 .controlSize(.regular)
                 .keyboardShortcut(.return, modifiers: .command)
                 .contextHelp("align.localAlign")
+                
+                Picker("", selection: $alignmentMode) {
+                    Text("Auto").tag(AlignmentMode.auto)
+                    Text("DNA").tag(AlignmentMode.dna)
+                    Text("Protein").tag(AlignmentMode.protein)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+                .font(.caption)
+                .contextHelp("align.mode")
+                
+                Picker("", selection: $alignmentScope) {
+                    Text("Full length").tag(AlignmentScope.fullLength)
+                    Text("Local").tag(AlignmentScope.local)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+                .font(.caption)
+                .contextHelp("align.scope")
                 
                 HStack(spacing: 4) {
                     Text("WordSize").font(.caption)
@@ -322,6 +413,23 @@ struct AlignTwoSequencesView: View {
                 .onChange(of: showFeatures) { _ in rerender() }
                 .contextHelp("align.showFeatures")
             
+            if proteinModeActive {
+                Divider().frame(height: 16)
+                
+                Toggle("Color coded", isOn: $colorCoded)
+                    .toggleStyle(.checkbox).font(.caption)
+                    .onChange(of: colorCoded) { _ in rerender() }
+                    .contextHelp("align.colorCoded")
+                
+                if colorCoded {
+                    legendItem("Aliphatic", .primary)
+                    legendItem("Aromatic", .purple)
+                    legendItem("Acidic", .red)
+                    legendItem("Basic", .blue)
+                    legendItem("Polar", .green)
+                }
+            }
+            
             Button(action: { withAnimation { showFeatureList.toggle() } }) {
                 Image(systemName: showFeatureList ? "list.bullet.circle.fill" : "list.bullet.circle")
                     .foregroundColor(.accentColor)
@@ -338,9 +446,9 @@ struct AlignTwoSequencesView: View {
     
     private var featureListSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            let sequences = sequenceManager.sequences
-            let seq1 = seq1Index < sequences.count ? sequences[seq1Index] : nil
-            let seq2 = seq2Index < sequences.count ? sequences[seq2Index] : nil
+            let choices = seqChoices
+            let seq1 = seq1Index < choices.count ? choices[seq1Index] : nil
+            let seq2 = seq2Index < choices.count ? choices[seq2Index] : nil
             let allFeatures = (seq1?.features ?? []) + (seq2?.features ?? [])
             
             HStack {
@@ -424,6 +532,13 @@ struct AlignTwoSequencesView: View {
         .padding(.horizontal, 10).padding(.vertical, 2)
     }
     
+    private func legendItem(_ label: String, _ color: Color) -> some View {
+        HStack(spacing: 2) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(label).font(.system(size: 9)).foregroundColor(.secondary)
+        }
+    }
+    
     // MARK: - Result Area
     
     private var resultArea: some View {
@@ -439,7 +554,7 @@ struct AlignTwoSequencesView: View {
             } else {
                 VStack {
                     Spacer()
-                    Text("ALIGN DNA SEQUENCES")
+                    Text("ALIGN SEQUENCES")
                         .font(.system(size: 28, weight: .bold))
                         .italic()
                         .foregroundColor(.secondary.opacity(0.4))
@@ -482,6 +597,18 @@ struct AlignTwoSequencesView: View {
             
             Spacer()
             
+            if let result = alignmentResult, result.alignmentLength > 0 {
+                if proteinModeActive {
+                    let (cons, _) = proteinSimilarityCounts(result)
+                    let sim = Double(result.matches + cons) / Double(result.alignmentLength) * 100
+                    Text(String(format: "%.1f%% identity, %.1f%% similarity", result.identity, sim))
+                        .font(.caption).foregroundColor(.secondary)
+                } else {
+                    Text(String(format: "%.1f%% identity", result.identity))
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
+            
             Button("Copy to ClipBoard") {
                 copyToClipboard()
             }
@@ -508,13 +635,13 @@ struct AlignTwoSequencesView: View {
     // MARK: - Run Alignment
     
     private func runAlignment() {
-        let sequences = sequenceManager.sequences
-        guard sequences.count >= 2,
-              seq1Index < sequences.count,
-              seq2Index < sequences.count else { return }
+        let choices = seqChoices
+        guard choices.count >= 2,
+              seq1Index < choices.count,
+              seq2Index < choices.count else { return }
         
-        let s1 = sequences[seq1Index].sequence
-        let s2 = sequences[seq2Index].sequence
+        let s1 = choices[seq1Index].sequence
+        let s2 = choices[seq2Index].sequence
         
         guard !s1.isEmpty && !s2.isEmpty else { return }
         
@@ -524,24 +651,28 @@ struct AlignTwoSequencesView: View {
         let ws = wordSize
         let ap1 = antiParallel1
         let ap2 = antiParallel2
+        let mode = alignmentMode
+        let scope = alignmentScope
         
         // Warn if alignment could be slow
         if len1 * len2 > longAlignmentThreshold {
-            pendingAlignmentParams = (s1, s2, ws, ap1, ap2)
+            pendingAlignmentParams = (s1, s2, ws, ap1, ap2, mode, scope)
             showLongAlignmentWarning = true
             return
         }
         
-        executeAlignment(s1: s1, s2: s2, ws: ws, ap1: ap1, ap2: ap2)
+        executeAlignment(s1: s1, s2: s2, ws: ws, ap1: ap1, ap2: ap2, mode: mode, scope: scope)
     }
     
-    private func executeAlignment(s1: String, s2: String, ws: Int, ap1: Bool, ap2: Bool) {
+    private func executeAlignment(s1: String, s2: String, ws: Int, ap1: Bool, ap2: Bool,
+                                  mode: AlignmentMode, scope: AlignmentScope) {
         isAligning = true
         
         DispatchQueue.global(qos: .userInitiated).async {
             let aligner = SequenceAligner()
             let result = aligner.align(seq1: s1, seq2: s2, wordSize: ws,
-                                       antiParallel1: ap1, antiParallel2: ap2)
+                                       antiParallel1: ap1, antiParallel2: ap2,
+                                       mode: mode, scope: scope)
             let rendered = renderAlignment(result)
             DispatchQueue.main.async {
                 alignmentResult = result
@@ -555,10 +686,10 @@ struct AlignTwoSequencesView: View {
     
     /// Build a colour map: for each base position -> NSColor based on features.
     private func buildFeatureColourMap(for seqIndex: Int) -> [NSColor] {
-        let sequences = sequenceManager.sequences
-        guard showFeatures, seqIndex < sequences.count else { return [] }
-        let seq = sequences[seqIndex]
-        let seqLen = seq.sequence.filter(\.isLetter).count
+        let choices = seqChoices
+        guard showFeatures, seqIndex < choices.count else { return [] }
+        let seq = choices[seqIndex]
+        let seqLen = seq.sequence.filter { $0.isLetter || $0 == "*" }.count
         var map = Array(repeating: NSColor.labelColor, count: seqLen)
         
         for feature in seq.features {
@@ -576,9 +707,12 @@ struct AlignTwoSequencesView: View {
     }
     
     /// Map feature colours through alignment gaps.
-    private func mapColoursToAlignment(_ aligned: [Character], baseColours: [NSColor]) -> [NSColor] {
+    /// `startIndex` is the 0-based position in the original sequence of the
+    /// first aligned residue (non-zero for local alignments).
+    private func mapColoursToAlignment(_ aligned: [Character], baseColours: [NSColor],
+                                       startIndex: Int = 0) -> [NSColor] {
         var result: [NSColor] = []
-        var baseIdx = 0
+        var baseIdx = startIndex
         for ch in aligned {
             if ch == "-" {
                 result.append(NSColor.black)
@@ -618,15 +752,48 @@ struct AlignTwoSequencesView: View {
             return output
         }
         
-        // Build feature colour maps
-        let baseColours1 = buildFeatureColourMap(for: seq1Index)
-        let baseColours2 = buildFeatureColourMap(for: seq2Index)
-        let alignColours1 = mapColoursToAlignment(al1, baseColours: baseColours1)
-        let alignColours2 = mapColoursToAlignment(al2, baseColours: baseColours2)
+        let isProtein = proteinModeActive
         
-        // Track positions (1-based, gaps don't count)
-        var pos1 = 1
-        var pos2 = 1
+        // Header
+        let choices = seqChoices
+        let c1 = seq1Index < choices.count ? choices[seq1Index] : nil
+        let c2 = seq2Index < choices.count ? choices[seq2Index] : nil
+        let unit = isProtein ? "aa" : "bp"
+        let len1 = c1?.sequence.filter { $0.isLetter || $0 == "*" }.count ?? 0
+        let len2 = c2?.sequence.filter { $0.isLetter || $0 == "*" }.count ?? 0
+        let scopeStr = alignmentScope == .local ? "Local (best-matching region)" : "Full length"
+        let scoringStr = isProtein ? "BLOSUM62" : "match +5 / mismatch -4"
+        let name1 = c1?.name ?? "Seq 1"
+        let name2 = c2?.name ?? "Seq 2"
+        let headerStr = "Alignment: \(name1) (\(len1) \(unit)) vs \(name2) (\(len2) \(unit))\n"
+            + "Scope: \(scopeStr)  |  Scoring: \(scoringStr)\n\n"
+        output.append(NSAttributedString(string: headerStr, attributes: labelAttrs))
+        
+        // Build colour maps: feature colours, or amino-acid class colours
+        // when colour coding is on in protein mode.
+        var alignColours1: [NSColor]
+        var alignColours2: [NSColor]
+        if isProtein && colorCoded {
+            alignColours1 = al1.map { $0 == "-" ? NSColor.black : nsColorForAA($0) }
+            alignColours2 = al2.map { $0 == "-" ? NSColor.black : nsColorForAA($0) }
+        } else {
+            let baseColours1 = buildFeatureColourMap(for: seq1Index)
+            let baseColours2 = buildFeatureColourMap(for: seq2Index)
+            alignColours1 = mapColoursToAlignment(al1, baseColours: baseColours1,
+                                                  startIndex: result.start1 - 1)
+            alignColours2 = mapColoursToAlignment(al2, baseColours: baseColours2,
+                                                  startIndex: result.start2 - 1)
+        }
+        // Stop codons always red in protein mode
+        if isProtein {
+            for (idx, ch) in al1.enumerated() where ch == "*" { alignColours1[idx] = .red }
+            for (idx, ch) in al2.enumerated() where ch == "*" { alignColours2[idx] = .red }
+        }
+        
+        // Track positions (1-based, gaps don't count).
+        // Local alignments start partway into the original sequences.
+        var pos1 = result.start1
+        var pos2 = result.start2
         
         let seq1Frames = [seq1Frame1, seq1Frame2, seq1Frame3]
         let seq2Frames = [seq2Frame1, seq2Frame2, seq2Frame3]
@@ -681,15 +848,27 @@ struct AlignTwoSequencesView: View {
                                 seqNumber: 1, basePositions: basePositions1)
             output.append(NSAttributedString(string: "    \(max(0, endPos1))\n", attributes: labelAttrs))
             
-            // --- Match line ---
+            // --- Match line ("|" for DNA; "* : ." similarity for protein) ---
             output.append(NSAttributedString(string: pad, attributes: matchAttrs))
             for idx in offset..<end {
-                let c1 = al1[idx].sequenceUppercased
-                let c2 = al2[idx].sequenceUppercased
-                if c1 != "-" && c2 != "-" && c1 == c2 {
-                    output.append(NSAttributedString(string: "|", attributes: matchAttrs))
-                } else {
+                let a = al1[idx], b = al2[idx]
+                if a == "-" || b == "-" {
                     output.append(NSAttributedString(string: " ", attributes: matchAttrs))
+                } else if !isProtein {
+                    let same = a.sequenceUppercased == b.sequenceUppercased
+                    output.append(NSAttributedString(string: same ? "|" : " ",
+                                                     attributes: matchAttrs))
+                } else {
+                    let sym = SequenceAligner.proteinMatchSymbol(a, b)
+                    let symColor: NSColor
+                    switch sym {
+                    case "*": symColor = .labelColor
+                    case ":": symColor = .darkGray
+                    case ".": symColor = .lightGray
+                    default:  symColor = .clear
+                    }
+                    output.append(NSAttributedString(string: String(sym),
+                                                     attributes: [.font: font, .foregroundColor: symColor]))
                 }
             }
             output.append(NSAttributedString(string: "\n", attributes: matchAttrs))
@@ -736,12 +915,53 @@ struct AlignTwoSequencesView: View {
             offset = end
         }
         
-        // Summary line
-        let summaryStr = String(format: "\nAlignment: %d matches out of %d positions (%.1f%% identity)\n",
-                                result.matches, result.alignmentLength, result.identity)
+        // Summary
+        let summaryStr: String
+        if isProtein {
+            let (cons, semi) = proteinSimilarityCounts(result)
+            let similarity = result.alignmentLength > 0
+                ? Double(result.matches + cons) / Double(result.alignmentLength) * 100 : 0
+            summaryStr = String(format: "\nAlignment: %d identical, %d conservative, %d semi-conservative out of %d positions, %d gap positions\n",
+                                result.matches, cons, semi, result.alignmentLength, result.gapCount)
+                + String(format: "Identity: %.1f%%  |  Similarity: %.1f%%\n", result.identity, similarity)
+                + "Key: * identical  : conservative  . semi-conservative\n"
+        } else {
+            summaryStr = String(format: "\nAlignment: %d matches out of %d positions (%.1f%% identity), %d gap positions\n",
+                                result.matches, result.alignmentLength, result.identity, result.gapCount)
+        }
         output.append(NSAttributedString(string: summaryStr, attributes: labelAttrs))
         
         return output
+    }
+    
+    /// Count conservative (BLOSUM62 > 0) and semi-conservative (= 0)
+    /// substitutions across the aligned columns.
+    private func proteinSimilarityCounts(_ result: AlignmentResult) -> (conservative: Int, semi: Int) {
+        var cons = 0, semi = 0
+        for (a, b) in zip(result.alignedSeq1, result.alignedSeq2) {
+            guard a != "-" && b != "-" else { continue }
+            switch SequenceAligner.proteinMatchSymbol(a, b) {
+            case ":": cons += 1
+            case ".": semi += 1
+            default: break
+            }
+        }
+        return (cons, semi)
+    }
+    
+    /// Amino-acid property colouring (aliphatic/aromatic/acidic/basic/polar).
+    private func nsColorForAA(_ aa: Character) -> NSColor {
+        switch aa.sequenceUppercased {
+        case "G", "A", "V", "L", "I", "P": return NSColor.labelColor
+        case "F", "W", "Y":                 return NSColor.purple
+        case "D", "E":                       return NSColor.red
+        case "K", "R", "H":                  return NSColor.blue
+        case "S", "T", "N", "Q":             return NSColor(red: 0.0, green: 0.6, blue: 0.0, alpha: 1.0)
+        case "C":                             return NSColor(red: 0.7, green: 0.6, blue: 0.0, alpha: 1.0)
+        case "M":                             return NSColor.orange
+        case "*":                             return NSColor.red
+        default:                              return NSColor.secondaryLabelColor
+        }
     }
     
     /// Append a chunk of sequence characters with feature colour coding, optional diff highlighting,

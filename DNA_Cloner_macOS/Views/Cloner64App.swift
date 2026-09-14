@@ -487,14 +487,10 @@ struct Cloner64App: App {
                 
                 Divider()
                 
-                Button("Align Two DNA Sequences...") {
+                Button("Align Two Sequences...") {
                     AlignTwoSequencesWindowManager.shared.openWindow(sequenceManager: sequenceManager)
                 }
                 .keyboardShortcut("a", modifiers: [.command, .shift])
-                
-                Button("Align Two Protein Sequences...") {
-                    AlignTwoProteinSequencesWindowManager.shared.openWindow(sequenceManager: sequenceManager)
-                }
                 
                 Divider()
                 

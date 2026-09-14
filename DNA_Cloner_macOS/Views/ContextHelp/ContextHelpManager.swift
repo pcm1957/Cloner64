@@ -1130,23 +1130,35 @@ final class ContextHelpManager: ObservableObject {
             "Restrict the shuttle route search to vectors you have earmarked with a star in the Cloning Vector Library (Tools ▸ Cloning Vector Library…). When on, only your starred vectors are considered as intermediate cloning steps, so the results focus on routes you can actually carry out with the vectors in your lab.\n\nThis button only appears when you have at least one vector earmarked. Turn it off to search the full library."
         ),
 
-        // --- Align Two DNA Sequences ---
+        // --- Align Two Sequences (DNA or protein) ---
 
         "align.sequencePicker": (
             "Sequence",
-            "Choose which of your open DNA sequences to use for this side of the alignment."
+            "Choose which of your open sequences to use for this side of the alignment. DNA sequences are listed first, followed by protein sequences (marked \u{201C}(protein)\u{201D}). The length \u{2014} and for proteins the molecular weight \u{2014} is shown beneath the picker."
+        ),
+        "align.mode": (
+            "Alignment Mode",
+            "Choose how the sequences are scored. Auto treats sequences loaded from protein files as protein, and otherwise inspects the residues: anything that is mostly A/C/G/T is treated as DNA. DNA mode uses simple match/mismatch scoring; Protein mode uses the BLOSUM62 substitution matrix, so conservative amino acid changes (e.g. K\u{2194}R, I\u{2194}L) score better than radical ones.\n\nIn Protein mode the anti-parallel and translation options are disabled, since they only make sense for DNA, and the match line shows * (identical), : (conservative) and . (semi-conservative) instead of |."
+        ),
+        "align.scope": (
+            "Alignment Scope",
+            "Full length keeps both sequences end to end: unmatched ends appear as gaps, and long insertions in one sequence \u{2014} such as introns when aligning genomic DNA against a cDNA \u{2014} appear as continuous gap blocks in the other.\n\nLocal trims the result to the best-scoring shared region (Smith-Waterman), which is useful for finding a shared domain between otherwise different sequences. Position numbers in the output refer to the original sequences, so a local alignment may start partway in. Note that a local alignment can legitimately extend a little beyond the \u{201C}obvious\u{201D} shared region when the flanking sequence happens to contain chance similarity."
         ),
         "align.antiParallel": (
             "Anti-parallel",
-            "Reverse-complement this sequence before aligning. Use it when you suspect the two sequences are on opposite strands — e.g. aligning a gene against its reverse complement."
+            "Reverse-complement this sequence before aligning. Use it when you suspect the two sequences are on opposite strands \u{2014} e.g. aligning a gene against its reverse complement.\n\nOnly available in DNA mode."
         ),
         "align.translation": (
             "Translation Frames",
-            "Show the protein translation in one or more of the three reading frames alongside the DNA. Useful for checking that coding regions line up in-frame between the two sequences."
+            "Show the protein translation in one or more of the three reading frames alongside the DNA. Useful for checking that coding regions line up in-frame between the two sequences.\n\nOnly available in DNA mode."
         ),
         "align.localAlign": (
             "Local Align",
-            "Run a local pairwise alignment of the two selected sequences and display the matches, mismatches and gaps. Shortcut: ⌘↩."
+            "Run a pairwise alignment of the two selected sequences and display the matches, mismatches and gaps. Use the Scope control to choose between full-length and local (trimmed) alignment. Shortcut: \u{2318}\u{21A9}."
+        ),
+        "align.colorCoded": (
+            "Color Coded",
+            "Colour residues by their chemical class (aliphatic, aromatic, acidic, basic, polar). Useful for spotting conservative substitutions where the chemical character is preserved.\n\nOnly shown in Protein mode."
         ),
         "align.highlightDiffs": (
             "Highlight Differences",
@@ -1173,41 +1185,6 @@ final class ContextHelpManager: ObservableObject {
             "Set paper size, orientation and margins for printing the alignment."
         ),
         "align.print": (
-            "Print",
-            "Send the alignment to the printer using the print font size selected above."
-        ),
-
-        // --- Align Two Protein Sequences ---
-
-        "alignProt.proteinPicker": (
-            "Protein",
-            "Choose which of your open protein sequences to use for this side of the alignment. Length and molecular weight are shown beneath the picker."
-        ),
-        "alignProt.align": (
-            "Align",
-            "Run a pairwise alignment of the two selected proteins using the BLOSUM62 substitution matrix, and show identical, similar, and different residues. Shortcut: ⌘↩."
-        ),
-        "alignProt.highlightDiffs": (
-            "Highlight Differences",
-            "Colour residues that differ between the two proteins so they stand out from identical matches."
-        ),
-        "alignProt.colorCoded": (
-            "Color Coded",
-            "Colour residues by their chemical class (aliphatic, aromatic, acidic, basic, polar). Useful for spotting conservative substitutions where the chemical character is preserved."
-        ),
-        "alignProt.screenFontSize": (
-            "Screen Size",
-            "Choose the font size used to display the alignment on screen. Larger sizes are easier to read but show fewer residues per line."
-        ),
-        "alignProt.printFontSize": (
-            "Print Size",
-            "Choose the font size used when printing the alignment."
-        ),
-        "alignProt.copyClipboard": (
-            "Copy to Clipboard",
-            "Copy the formatted protein alignment to the clipboard as plain text, ready to paste into a document."
-        ),
-        "alignProt.print": (
             "Print",
             "Send the alignment to the printer using the print font size selected above."
         ),
