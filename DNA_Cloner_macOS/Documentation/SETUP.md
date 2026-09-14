@@ -62,7 +62,7 @@ DNA_Cloner_macOS/
 │   ├── CloningPrimerTransfer.swift      Bridge between Predictive Cloning and Primer Design
 │   ├── ShuttleVectorLibrary.swift       Shuttle vector database
 │   ├── ShuttleVectorPathfinder.swift    Multi-step shuttle route finder
-│   ├── SequenceAligner.swift            Pairwise DNA alignment engine
+│   ├── SequenceAligner.swift            Pairwise alignment engine (DNA & protein)
 │   ├── XDNAParser.swift                 Serial Cloner XDNA/XPRT binary parser
 │   ├── SnapGeneParser.swift             SnapGene .dna binary parser
 │   ├── AppState.swift                   App-wide state
@@ -84,8 +84,7 @@ DNA_Cloner_macOS/
 │   ├── PredictiveCloningView.swift      Predictive cloning UI
 │   ├── PrimerDesignView.swift           PCR primer design tool
 │   ├── PCRSimulationView.swift          In silico PCR
-│   ├── AlignTwoSequencesView.swift      DNA pairwise alignment
-│   ├── AlignTwoProteinSequencesView.swift  Protein pairwise alignment
+│   ├── AlignTwoSequencesView.swift      Pairwise alignment (DNA & protein)
 │   ├── ProteinWindowView.swift          Protein sequence viewer
 │   ├── HydropathyPlotView.swift         Kyte-Doolittle hydropathy plot
 │   ├── FeatureCollectionView.swift      Feature Collection manager
@@ -113,7 +112,7 @@ DNA_Cloner_macOS/
     └── Info.plist                        App configuration
 ```
 
-**52 Swift source files • ~44,800 lines of code**
+**52 Swift source files • ~46,700 lines of code**
 
 ## Verification Checklist
 
