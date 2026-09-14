@@ -230,13 +230,13 @@ struct RestrictionEnzymeListView: View {
             // GGTCTC(1/5), counting from the END of the site. Show the
             // catalogue form for those, so the table matches the bottle.
             Text(enzyme.cutsOutsideSite
-                 ? "+\(enzyme.cutPosition5Prime - enzyme.siteLength)"
+                 ? Self.catalogueOffset(enzyme.cutPosition5Prime - enzyme.siteLength)
                  : "\(enzyme.cutPosition5Prime)")
                 .fontDesign(.monospaced)
                 .frame(width: 50, alignment: .center)
 
             Text(enzyme.cutsOutsideSite
-                 ? "+\(enzyme.cutPosition3Prime - enzyme.siteLength)"
+                 ? Self.catalogueOffset(enzyme.cutPosition3Prime - enzyme.siteLength)
                  : "\(enzyme.cutPosition3Prime)")
                 .fontDesign(.monospaced)
                 .frame(width: 50, alignment: .center)
@@ -268,6 +268,14 @@ struct RestrictionEnzymeListView: View {
         selectedEnzymeID = nil
     }
 
+    /// Catalogue-style cut offset for enzymes that cut outside their site:
+    /// "+1" for downstream cuts, "-1" for cuts before the site end (e.g. the
+    /// bottom strand of BsmI, GAATGC(1/-1)). A bare "+" prefix on a negative
+    /// number previously displayed as "+-1".
+    private static func catalogueOffset(_ offset: Int) -> String {
+        offset >= 0 ? "+\(offset)" : "\(offset)"
+    }
+
     // MARK: - Export / Import
 
     private var enzymeFileType: UTType {
@@ -279,7 +287,9 @@ struct RestrictionEnzymeListView: View {
         panel.title = "Export My Enzymes"
         panel.message = "Saves the enzymes you have added, edited or deleted — "
                       + "not the whole built-in list."
-        panel.nameFieldStringValue = "My Enzymes.\(EnzymeStore.fileExtension)"
+        // The panel appends the extension itself from allowedContentTypes;
+        // putting it in the name too produced "My Enzymes.c64enz.c64enz".
+        panel.nameFieldStringValue = "My Enzymes"
         panel.allowedContentTypes = [enzymeFileType]
         panel.canCreateDirectories = true
 
