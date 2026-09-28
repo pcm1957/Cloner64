@@ -7,129 +7,111 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E801F63D3058648B002FA9A5 /* ProteinWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6303058648B002FA9A5 /* ProteinWindowView.swift */; };
+		E801F63F3058648B002FA9A5 /* SequenceMapRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6353058648B002FA9A5 /* SequenceMapRenderer.swift */; };
+		E801F6403058648B002FA9A5 /* GraphicalMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F62A3058648B002FA9A5 /* GraphicalMapView.swift */; };
+		E801F6413058648B002FA9A5 /* ShuttleVectorListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6383058648B002FA9A5 /* ShuttleVectorListView.swift */; };
+		E801F6433058648B002FA9A5 /* HydropathyPlotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F62B3058648B002FA9A5 /* HydropathyPlotView.swift */; };
+		E801F6443058648B002FA9A5 /* CompactSequencePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6243058648B002FA9A5 /* CompactSequencePanel.swift */; };
+		E801F6453058648B002FA9A5 /* SiteUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6393058648B002FA9A5 /* SiteUsageView.swift */; };
+		E801F6463058648B002FA9A5 /* AlignTwoSequencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6213058648B002FA9A5 /* AlignTwoSequencesView.swift */; };
+		E801F6483058648B002FA9A5 /* SequenceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6343058648B002FA9A5 /* SequenceEditorView.swift */; };
+		E801F6493058648B002FA9A5 /* PCRSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F62D3058648B002FA9A5 /* PCRSimulationView.swift */; };
+		E801F64A3058648B002FA9A5 /* VirtualCutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F63A3058648B002FA9A5 /* VirtualCutterView.swift */; };
+		E801F64B3058648B002FA9A5 /* SequenceMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6363058648B002FA9A5 /* SequenceMapView.swift */; };
+		E801F64C3058648B002FA9A5 /* ConstructCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6273058648B002FA9A5 /* ConstructCheckView.swift */; };
+		E801F64D3058648B002FA9A5 /* FeatureCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6293058648B002FA9A5 /* FeatureCollectionView.swift */; };
+		E801F64E3058648B002FA9A5 /* PredictiveCloningView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F62E3058648B002FA9A5 /* PredictiveCloningView.swift */; };
+		E801F64F3058648B002FA9A5 /* ContextHelpPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F61E3058648B002FA9A5 /* ContextHelpPanel.swift */; };
+		E801F6503058648B002FA9A5 /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F63B3058648B002FA9A5 /* WelcomeView.swift */; };
+		E801F6513058648B002FA9A5 /* ContextHelpManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F61C3058648B002FA9A5 /* ContextHelpManager.swift */; };
+		E801F6523058648B002FA9A5 /* PrimerDesignView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F62F3058648B002FA9A5 /* PrimerDesignView.swift */; };
+		E801F6533058648B002FA9A5 /* ContextMenuHelpBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F61F3058648B002FA9A5 /* ContextMenuHelpBridge.swift */; };
+		E801F6543058648B002FA9A5 /* SequenceWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6373058648B002FA9A5 /* SequenceWindowView.swift */; };
+		E801F6553058648B002FA9A5 /* ReferenceTablesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6313058648B002FA9A5 /* ReferenceTablesView.swift */; };
+		E801F6563058648B002FA9A5 /* Cloner64App.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6233058648B002FA9A5 /* Cloner64App.swift */; };
+		E801F6573058648B002FA9A5 /* ContextHelpModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F61D3058648B002FA9A5 /* ContextHelpModifier.swift */; };
+		E801F6583058648B002FA9A5 /* ConstructBuilderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6263058648B002FA9A5 /* ConstructBuilderView.swift */; };
+		E801F6593058648B002FA9A5 /* DigestVerificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6283058648B002FA9A5 /* DigestVerificationView.swift */; };
+		E801F65A3058648B002FA9A5 /* RestrictionEnzymeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6323058648B002FA9A5 /* RestrictionEnzymeListView.swift */; };
+		E801F65B3058648B002FA9A5 /* CompatibleEndsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E801F6253058648B002FA9A5 /* CompatibleEndsView.swift */; };
+		E801F65C3058648B002FA9A5 /* ContextHelp_Instructions_1.md in Resources */ = {isa = PBXBuildFile; fileRef = E801F61B3058648B002FA9A5 /* ContextHelp_Instructions_1.md */; };
 		E81E77742F44CA99003F75AF /* FeatureLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E81E77732F44CA99003F75AF /* FeatureLibrary.swift */; };
-		E83A94D92F6D9DAD00400C75 /* PredictiveCloningView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83A94D82F6D9DAD00400C75 /* PredictiveCloningView.swift */; };
 		E83A94DB2F6DA14100400C75 /* CloningStrategyAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83A94DA2F6DA14100400C75 /* CloningStrategyAnalyzer.swift */; };
-		E83BC3A22F5A121C00B55257 /* AlignTwoProteinSequencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83BC3A12F5A121C00B55257 /* AlignTwoProteinSequencesView.swift */; };
-		E83BC3A42F5A144000B55257 /* HydropathyPlotView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E83BC3A32F5A144000B55257 /* HydropathyPlotView.swift */; };
-		E841E98B2F83A2BA00F6E7FC /* ContextHelp_Instructions_1.md in Resources */ = {isa = PBXBuildFile; fileRef = E841E98A2F83A2BA00F6E7FC /* ContextHelp_Instructions_1.md */; };
-		E841E98D2F83A2D100F6E7FC /* ContextHelpManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E841E98C2F83A2D100F6E7FC /* ContextHelpManager.swift */; };
-		E841E98F2F83A2E500F6E7FC /* ContextHelpPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E841E98E2F83A2E500F6E7FC /* ContextHelpPanel.swift */; };
-		E841E9912F83A2F700F6E7FC /* ContextHelpModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E841E9902F83A2F700F6E7FC /* ContextHelpModifier.swift */; };
-		E841E9932F83AB0F00F6E7FC /* ContextMenuHelpBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E841E9922F83AB0F00F6E7FC /* ContextMenuHelpBridge.swift */; };
-		E842264B2FC57E12008EFEE2 /* CompactSequencePanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E842264A2FC57E12008EFEE2 /* CompactSequencePanel.swift */; };
-		E853E0CE2F64B641009CFB9B /* RestrictionEnzymeListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E853E0CD2F64B641009CFB9B /* RestrictionEnzymeListView.swift */; };
-		E853E0D02F64B653009CFB9B /* CompatibleEndsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E853E0CF2F64B653009CFB9B /* CompatibleEndsView.swift */; };
 		E853E0D42F66A1C9009CFB9B /* MethylationSensitivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = E853E0D32F66A1C9009CFB9B /* MethylationSensitivity.swift */; };
-		E853E0D62F66CEA6009CFB9B /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E853E0D52F66CEA6009CFB9B /* WelcomeView.swift */; };
 		E859C0452F71541300CBCA03 /* CloningPrimerTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E859C0442F71541300CBCA03 /* CloningPrimerTransfer.swift */; };
 		E859C0472F71542000CBCA03 /* DNASequence+ORFs.swift in Sources */ = {isa = PBXBuildFile; fileRef = E859C0462F71542000CBCA03 /* DNASequence+ORFs.swift */; };
 		E859C0492F7164CD00CBCA03 /* ShuttleVectorLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E859C0482F7164CD00CBCA03 /* ShuttleVectorLibrary.swift */; };
-		E859C04B2F7164E500CBCA03 /* ShuttleVectorListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E859C04A2F7164E500CBCA03 /* ShuttleVectorListView.swift */; };
 		E859C04D2F71654100CBCA03 /* ShuttleVectorPathfinder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E859C04C2F71654100CBCA03 /* ShuttleVectorPathfinder.swift */; };
-		E859DB6C2FE9CFD1008C1F1F /* Claude.txt in Resources */ = {isa = PBXBuildFile; fileRef = E859DB6B2FE9CFD1008C1F1F /* Claude.txt */; };
-		E86E37652F5DEAD200D2905F /* VirtualCutterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86E37642F5DEAD200D2905F /* VirtualCutterView.swift */; };
-		E86E37672F5DF0C000D2905F /* SiteUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86E37662F5DF0C000D2905F /* SiteUsageView.swift */; };
-		E86E37692F5E23CA00D2905F /* PCRSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86E37682F5E23CA00D2905F /* PCRSimulationView.swift */; };
-		E86E376D2F5EE9E500D2905F /* ConstructBuilderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86E376C2F5EE9E400D2905F /* ConstructBuilderView.swift */; };
-		E86E376F2F6218B000D2905F /* ReferenceTablesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86E376E2F6218B000D2905F /* ReferenceTablesView.swift */; };
-		E87B681D2F5625A1004505C7 /* PrimerDesignView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87B681C2F5625A1004505C7 /* PrimerDesignView.swift */; };
+		E86488DD30532F64005E5B1C /* EnzymeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E86488DC30532F64005E5B1C /* EnzymeStore.swift */; };
 		E87B681F2F57754F004505C7 /* ProteinSequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87B681E2F57754F004505C7 /* ProteinSequence.swift */; };
-		E87B68212F577581004505C7 /* ProteinWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E87B68202F577581004505C7 /* ProteinWindowView.swift */; };
-		E8AD324C2F79CC6E001BF10B /* Cloner64.icns in Resources */ = {isa = PBXBuildFile; fileRef = E8AD324B2F79CC6E001BF10B /* Cloner64.icns */; };
-		E8CD1F862FF3E06600DC84F8 /* Cloner_64_Handbook.pdf in Resources */ = {isa = PBXBuildFile; fileRef = E8CD1F852FF3E06600DC84F8 /* Cloner_64_Handbook.pdf */; };
-		E8E1434F2F336164000FF552 /* AnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143432F336164000FF552 /* AnalysisView.swift */; };
-		E8E143582F336164000FF552 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = E8E1433A2F336164000FF552 /* README.md */; };
-		E8E143592F336164000FF552 /* FILE_LIST.txt in Resources */ = {isa = PBXBuildFile; fileRef = E8E1434B2F336164000FF552 /* FILE_LIST.txt */; };
-		E8E1435A2F336164000FF552 /* SETUP.md in Resources */ = {isa = PBXBuildFile; fileRef = E8E1433B2F336164000FF552 /* SETUP.md */; };
-		E8E143722F33C512000FF552 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143712F33C512000FF552 /* AppState.swift */; };
-		E8E143742F33C534000FF552 /* SequenceEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143732F33C534000FF552 /* SequenceEditorView.swift */; };
-		E8E143762F33C551000FF552 /* GraphicalMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143752F33C551000FF552 /* GraphicalMapView.swift */; };
-		E8E143782F33C567000FF552 /* RestrictionSitesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143772F33C567000FF552 /* RestrictionSitesView.swift */; };
+		E8A4C487302649CE00BA1E3E /* Cloner_64_Handbook.pdf in Resources */ = {isa = PBXBuildFile; fileRef = E8A4C486302649CE00BA1E3E /* Cloner_64_Handbook.pdf */; };
 		E8E1437A2F33CBF6000FF552 /* SequenceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143792F33CBF6000FF552 /* SequenceManager.swift */; };
-		E8E1437C2F33CC04000FF552 /* ImportPreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E1437B2F33CC04000FF552 /* ImportPreferencesView.swift */; };
 		E8E143802F33FCC8000FF552 /* XDNAParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143692F33C4B3000FF552 /* XDNAParser.swift */; };
 		E8E143862F33FF20000FF552 /* DNASequence.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8E143852F33FF20000FF552 /* DNASequence.swift */; };
 		E8EBD0452F797D5E0049050B /* GraphicalMapWindowManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EBD0442F797D5E0049050B /* GraphicalMapWindowManager.swift */; };
 		E8EBD45B2F44CEA200DFAF4F /* RestrictionEnzyme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EBD45A2F44CEA200DFAF4F /* RestrictionEnzyme.swift */; };
-		E8EBD4612F44D1AC00DFAF4F /* FeatureCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EBD4602F44D1AC00DFAF4F /* FeatureCollectionView.swift */; };
 		E8EBD46B2F4863B000DFAF4F /* FeatureLibrary+Import.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EBD46A2F4863B000DFAF4F /* FeatureLibrary+Import.swift */; };
 		E8EBD4712F48DE7B00DFAF4F /* Focusedsequencevalues.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EBD4702F48DE6E00DFAF4F /* Focusedsequencevalues.swift */; };
-		E8EBD4732F48DF5B00DFAF4F /* SequenceWindowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EBD4722F48DF4B00DFAF4F /* SequenceWindowView.swift */; };
-		E8F450292F4F6FB8002213D2 /* SequenceMapRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F450282F4F6FB8002213D2 /* SequenceMapRenderer.swift */; };
-		E8F4502B2F4F6FEC002213D2 /* SequenceMapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F4502A2F4F6FEC002213D2 /* SequenceMapView.swift */; };
-		E8F4502F2F5081E7002213D2 /* AlignTwoSequencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F4502E2F5081E7002213D2 /* AlignTwoSequencesView.swift */; };
 		E8F450312F50820C002213D2 /* SequenceAligner.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F450302F50820C002213D2 /* SequenceAligner.swift */; };
-		E8F450332F50FAEE002213D2 /* Cloner64App.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8F450322F50FAEE002213D2 /* Cloner64App.swift */; };
 		E8FCA7322F6896E30042FABD /* SnapGeneParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8FCA7312F6896E30042FABD /* SnapGeneParser.swift */; };
 		FA1A1A1A1A1A1A1A1A1A1A01 /* DigestVerificationAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1A1A1A1A1A1A1A1A1A1A02 /* DigestVerificationAnalyzer.swift */; };
-		FA1A1A1A1A1A1A1A1A1A1A11 /* DigestVerificationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA1A1A1A1A1A1A1A1A1A1A12 /* DigestVerificationView.swift */; };
 		FA2B2B2B2B2B2B2B2B2B2B01 /* ConstructCheckAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2B2B2B2B2B2B2B2B2B2B02 /* ConstructCheckAnalyzer.swift */; };
-		FA2B2B2B2B2B2B2B2B2B2B11 /* ConstructCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA2B2B2B2B2B2B2B2B2B2B12 /* ConstructCheckView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		E801F61B3058648B002FA9A5 /* ContextHelp_Instructions_1.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ContextHelp_Instructions_1.md; sourceTree = "<group>"; };
+		E801F61C3058648B002FA9A5 /* ContextHelpManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextHelpManager.swift; sourceTree = "<group>"; };
+		E801F61D3058648B002FA9A5 /* ContextHelpModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextHelpModifier.swift; sourceTree = "<group>"; };
+		E801F61E3058648B002FA9A5 /* ContextHelpPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextHelpPanel.swift; sourceTree = "<group>"; };
+		E801F61F3058648B002FA9A5 /* ContextMenuHelpBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuHelpBridge.swift; sourceTree = "<group>"; };
+		E801F6213058648B002FA9A5 /* AlignTwoSequencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlignTwoSequencesView.swift; sourceTree = "<group>"; };
+		E801F6233058648B002FA9A5 /* Cloner64App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cloner64App.swift; sourceTree = "<group>"; };
+		E801F6243058648B002FA9A5 /* CompactSequencePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactSequencePanel.swift; sourceTree = "<group>"; };
+		E801F6253058648B002FA9A5 /* CompatibleEndsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompatibleEndsView.swift; sourceTree = "<group>"; };
+		E801F6263058648B002FA9A5 /* ConstructBuilderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstructBuilderView.swift; sourceTree = "<group>"; };
+		E801F6273058648B002FA9A5 /* ConstructCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstructCheckView.swift; sourceTree = "<group>"; };
+		E801F6283058648B002FA9A5 /* DigestVerificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigestVerificationView.swift; sourceTree = "<group>"; };
+		E801F6293058648B002FA9A5 /* FeatureCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureCollectionView.swift; sourceTree = "<group>"; };
+		E801F62A3058648B002FA9A5 /* GraphicalMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicalMapView.swift; sourceTree = "<group>"; };
+		E801F62B3058648B002FA9A5 /* HydropathyPlotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HydropathyPlotView.swift; sourceTree = "<group>"; };
+		E801F62D3058648B002FA9A5 /* PCRSimulationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCRSimulationView.swift; sourceTree = "<group>"; };
+		E801F62E3058648B002FA9A5 /* PredictiveCloningView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictiveCloningView.swift; sourceTree = "<group>"; };
+		E801F62F3058648B002FA9A5 /* PrimerDesignView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimerDesignView.swift; sourceTree = "<group>"; };
+		E801F6303058648B002FA9A5 /* ProteinWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinWindowView.swift; sourceTree = "<group>"; };
+		E801F6313058648B002FA9A5 /* ReferenceTablesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceTablesView.swift; sourceTree = "<group>"; };
+		E801F6323058648B002FA9A5 /* RestrictionEnzymeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestrictionEnzymeListView.swift; sourceTree = "<group>"; };
+		E801F6343058648B002FA9A5 /* SequenceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceEditorView.swift; sourceTree = "<group>"; };
+		E801F6353058648B002FA9A5 /* SequenceMapRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceMapRenderer.swift; sourceTree = "<group>"; };
+		E801F6363058648B002FA9A5 /* SequenceMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceMapView.swift; sourceTree = "<group>"; };
+		E801F6373058648B002FA9A5 /* SequenceWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceWindowView.swift; sourceTree = "<group>"; };
+		E801F6383058648B002FA9A5 /* ShuttleVectorListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShuttleVectorListView.swift; sourceTree = "<group>"; };
+		E801F6393058648B002FA9A5 /* SiteUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteUsageView.swift; sourceTree = "<group>"; };
+		E801F63A3058648B002FA9A5 /* VirtualCutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualCutterView.swift; sourceTree = "<group>"; };
+		E801F63B3058648B002FA9A5 /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		E81E77732F44CA99003F75AF /* FeatureLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureLibrary.swift; sourceTree = "<group>"; };
-		E83A94D82F6D9DAD00400C75 /* PredictiveCloningView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictiveCloningView.swift; sourceTree = "<group>"; };
 		E83A94DA2F6DA14100400C75 /* CloningStrategyAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloningStrategyAnalyzer.swift; sourceTree = "<group>"; };
-		E83BC3A12F5A121C00B55257 /* AlignTwoProteinSequencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlignTwoProteinSequencesView.swift; sourceTree = "<group>"; };
-		E83BC3A32F5A144000B55257 /* HydropathyPlotView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HydropathyPlotView.swift; sourceTree = "<group>"; };
-		E841E98A2F83A2BA00F6E7FC /* ContextHelp_Instructions_1.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = ContextHelp_Instructions_1.md; sourceTree = "<group>"; };
-		E841E98C2F83A2D100F6E7FC /* ContextHelpManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextHelpManager.swift; sourceTree = "<group>"; };
-		E841E98E2F83A2E500F6E7FC /* ContextHelpPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextHelpPanel.swift; sourceTree = "<group>"; };
-		E841E9902F83A2F700F6E7FC /* ContextHelpModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextHelpModifier.swift; sourceTree = "<group>"; };
-		E841E9922F83AB0F00F6E7FC /* ContextMenuHelpBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextMenuHelpBridge.swift; sourceTree = "<group>"; };
-		E842264A2FC57E12008EFEE2 /* CompactSequencePanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactSequencePanel.swift; sourceTree = "<group>"; };
-		E853E0CD2F64B641009CFB9B /* RestrictionEnzymeListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestrictionEnzymeListView.swift; sourceTree = "<group>"; };
-		E853E0CF2F64B653009CFB9B /* CompatibleEndsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompatibleEndsView.swift; sourceTree = "<group>"; };
 		E853E0D32F66A1C9009CFB9B /* MethylationSensitivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MethylationSensitivity.swift; sourceTree = "<group>"; };
-		E853E0D52F66CEA6009CFB9B /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
 		E859C0442F71541300CBCA03 /* CloningPrimerTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloningPrimerTransfer.swift; sourceTree = "<group>"; };
 		E859C0462F71542000CBCA03 /* DNASequence+ORFs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DNASequence+ORFs.swift"; sourceTree = "<group>"; };
 		E859C0482F7164CD00CBCA03 /* ShuttleVectorLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShuttleVectorLibrary.swift; sourceTree = "<group>"; };
-		E859C04A2F7164E500CBCA03 /* ShuttleVectorListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShuttleVectorListView.swift; sourceTree = "<group>"; };
 		E859C04C2F71654100CBCA03 /* ShuttleVectorPathfinder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShuttleVectorPathfinder.swift; sourceTree = "<group>"; };
-		E859DB6B2FE9CFD1008C1F1F /* Claude.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = Claude.txt; sourceTree = "<group>"; };
-		E86E37642F5DEAD200D2905F /* VirtualCutterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualCutterView.swift; sourceTree = "<group>"; };
-		E86E37662F5DF0C000D2905F /* SiteUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiteUsageView.swift; sourceTree = "<group>"; };
-		E86E37682F5E23CA00D2905F /* PCRSimulationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PCRSimulationView.swift; sourceTree = "<group>"; };
-		E86E376C2F5EE9E400D2905F /* ConstructBuilderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstructBuilderView.swift; sourceTree = "<group>"; };
-		E86E376E2F6218B000D2905F /* ReferenceTablesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReferenceTablesView.swift; sourceTree = "<group>"; };
-		E87B681C2F5625A1004505C7 /* PrimerDesignView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrimerDesignView.swift; sourceTree = "<group>"; };
+		E86488DC30532F64005E5B1C /* EnzymeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnzymeStore.swift; sourceTree = "<group>"; };
 		E87B681E2F57754F004505C7 /* ProteinSequence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinSequence.swift; sourceTree = "<group>"; };
-		E87B68202F577581004505C7 /* ProteinWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProteinWindowView.swift; sourceTree = "<group>"; };
-		E8AD324B2F79CC6E001BF10B /* Cloner64.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = Cloner64.icns; sourceTree = "<group>"; };
+		E8A4C486302649CE00BA1E3E /* Cloner_64_Handbook.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = Cloner_64_Handbook.pdf; sourceTree = "<group>"; };
 		E8C1E02E2F83020300C23C96 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		E8CD1F852FF3E06600DC84F8 /* Cloner_64_Handbook.pdf */ = {isa = PBXFileReference; lastKnownFileType = image.pdf; path = Cloner_64_Handbook.pdf; sourceTree = "<group>"; };
 		E8E1432C2F336102000FF552 /* Cloner 64.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cloner 64.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		E8E1433A2F336164000FF552 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
-		E8E1433B2F336164000FF552 /* SETUP.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SETUP.md; sourceTree = "<group>"; };
-		E8E143432F336164000FF552 /* AnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisView.swift; sourceTree = "<group>"; };
-		E8E1434B2F336164000FF552 /* FILE_LIST.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = FILE_LIST.txt; sourceTree = "<group>"; };
 		E8E143692F33C4B3000FF552 /* XDNAParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XDNAParser.swift; sourceTree = "<group>"; };
-		E8E143712F33C512000FF552 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
-		E8E143732F33C534000FF552 /* SequenceEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceEditorView.swift; sourceTree = "<group>"; };
-		E8E143752F33C551000FF552 /* GraphicalMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicalMapView.swift; sourceTree = "<group>"; };
-		E8E143772F33C567000FF552 /* RestrictionSitesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestrictionSitesView.swift; sourceTree = "<group>"; };
 		E8E143792F33CBF6000FF552 /* SequenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceManager.swift; sourceTree = "<group>"; };
-		E8E1437B2F33CC04000FF552 /* ImportPreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportPreferencesView.swift; sourceTree = "<group>"; };
 		E8E143852F33FF20000FF552 /* DNASequence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DNASequence.swift; sourceTree = "<group>"; };
 		E8EBD0442F797D5E0049050B /* GraphicalMapWindowManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphicalMapWindowManager.swift; sourceTree = "<group>"; };
 		E8EBD45A2F44CEA200DFAF4F /* RestrictionEnzyme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestrictionEnzyme.swift; sourceTree = "<group>"; };
-		E8EBD4602F44D1AC00DFAF4F /* FeatureCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeatureCollectionView.swift; sourceTree = "<group>"; };
 		E8EBD46A2F4863B000DFAF4F /* FeatureLibrary+Import.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FeatureLibrary+Import.swift"; sourceTree = "<group>"; };
 		E8EBD4702F48DE6E00DFAF4F /* Focusedsequencevalues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Focusedsequencevalues.swift; sourceTree = "<group>"; };
-		E8EBD4722F48DF4B00DFAF4F /* SequenceWindowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceWindowView.swift; sourceTree = "<group>"; };
-		E8F450282F4F6FB8002213D2 /* SequenceMapRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceMapRenderer.swift; sourceTree = "<group>"; };
-		E8F4502A2F4F6FEC002213D2 /* SequenceMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceMapView.swift; sourceTree = "<group>"; };
-		E8F4502E2F5081E7002213D2 /* AlignTwoSequencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlignTwoSequencesView.swift; sourceTree = "<group>"; };
 		E8F450302F50820C002213D2 /* SequenceAligner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SequenceAligner.swift; sourceTree = "<group>"; };
-		E8F450322F50FAEE002213D2 /* Cloner64App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cloner64App.swift; sourceTree = "<group>"; };
 		E8FCA7312F6896E30042FABD /* SnapGeneParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapGeneParser.swift; sourceTree = "<group>"; };
 		FA1A1A1A1A1A1A1A1A1A1A02 /* DigestVerificationAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigestVerificationAnalyzer.swift; sourceTree = "<group>"; };
-		FA1A1A1A1A1A1A1A1A1A1A12 /* DigestVerificationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DigestVerificationView.swift; sourceTree = "<group>"; };
 		FA2B2B2B2B2B2B2B2B2B2B02 /* ConstructCheckAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstructCheckAnalyzer.swift; sourceTree = "<group>"; };
-		FA2B2B2B2B2B2B2B2B2B2B12 /* ConstructCheckView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstructCheckView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -151,6 +133,50 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		E801F6203058648B002FA9A5 /* ContextHelp */ = {
+			isa = PBXGroup;
+			children = (
+				E801F61B3058648B002FA9A5 /* ContextHelp_Instructions_1.md */,
+				E801F61C3058648B002FA9A5 /* ContextHelpManager.swift */,
+				E801F61D3058648B002FA9A5 /* ContextHelpModifier.swift */,
+				E801F61E3058648B002FA9A5 /* ContextHelpPanel.swift */,
+				E801F61F3058648B002FA9A5 /* ContextMenuHelpBridge.swift */,
+			);
+			path = ContextHelp;
+			sourceTree = "<group>";
+		};
+		E801F63C3058648B002FA9A5 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				E801F6203058648B002FA9A5 /* ContextHelp */,
+				E801F6213058648B002FA9A5 /* AlignTwoSequencesView.swift */,
+				E801F6233058648B002FA9A5 /* Cloner64App.swift */,
+				E801F6243058648B002FA9A5 /* CompactSequencePanel.swift */,
+				E801F6253058648B002FA9A5 /* CompatibleEndsView.swift */,
+				E801F6263058648B002FA9A5 /* ConstructBuilderView.swift */,
+				E801F6273058648B002FA9A5 /* ConstructCheckView.swift */,
+				E801F6283058648B002FA9A5 /* DigestVerificationView.swift */,
+				E801F6293058648B002FA9A5 /* FeatureCollectionView.swift */,
+				E801F62A3058648B002FA9A5 /* GraphicalMapView.swift */,
+				E801F62B3058648B002FA9A5 /* HydropathyPlotView.swift */,
+				E801F62D3058648B002FA9A5 /* PCRSimulationView.swift */,
+				E801F62E3058648B002FA9A5 /* PredictiveCloningView.swift */,
+				E801F62F3058648B002FA9A5 /* PrimerDesignView.swift */,
+				E801F6303058648B002FA9A5 /* ProteinWindowView.swift */,
+				E801F6313058648B002FA9A5 /* ReferenceTablesView.swift */,
+				E801F6323058648B002FA9A5 /* RestrictionEnzymeListView.swift */,
+				E801F6343058648B002FA9A5 /* SequenceEditorView.swift */,
+				E801F6353058648B002FA9A5 /* SequenceMapRenderer.swift */,
+				E801F6363058648B002FA9A5 /* SequenceMapView.swift */,
+				E801F6373058648B002FA9A5 /* SequenceWindowView.swift */,
+				E801F6383058648B002FA9A5 /* ShuttleVectorListView.swift */,
+				E801F6393058648B002FA9A5 /* SiteUsageView.swift */,
+				E801F63A3058648B002FA9A5 /* VirtualCutterView.swift */,
+				E801F63B3058648B002FA9A5 /* WelcomeView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
 		E80426252F3A3CDC00D40DEB /* Managers */ = {
 			isa = PBXGroup;
 			children = (
@@ -158,18 +184,6 @@
 				E8EBD46A2F4863B000DFAF4F /* FeatureLibrary+Import.swift */,
 			);
 			path = Managers;
-			sourceTree = "<group>";
-		};
-		E841E9892F83A26200F6E7FC /* ContextHelp */ = {
-			isa = PBXGroup;
-			children = (
-				E841E9902F83A2F700F6E7FC /* ContextHelpModifier.swift */,
-				E841E98A2F83A2BA00F6E7FC /* ContextHelp_Instructions_1.md */,
-				E841E98C2F83A2D100F6E7FC /* ContextHelpManager.swift */,
-				E841E98E2F83A2E500F6E7FC /* ContextHelpPanel.swift */,
-				E841E9922F83AB0F00F6E7FC /* ContextMenuHelpBridge.swift */,
-			);
-			path = ContextHelp;
 			sourceTree = "<group>";
 		};
 		E8E143232F336102000FF552 = {
@@ -189,25 +203,16 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		E8E1433C2F336164000FF552 /* Documentation */ = {
-			isa = PBXGroup;
-			children = (
-				E8E1433A2F336164000FF552 /* README.md */,
-				E8E1433B2F336164000FF552 /* SETUP.md */,
-			);
-			path = Documentation;
-			sourceTree = "<group>";
-		};
 		E8E143402F336164000FF552 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				E8E143712F33C512000FF552 /* AppState.swift */,
 				E859C0442F71541300CBCA03 /* CloningPrimerTransfer.swift */,
 				E83A94DA2F6DA14100400C75 /* CloningStrategyAnalyzer.swift */,
 				FA2B2B2B2B2B2B2B2B2B2B02 /* ConstructCheckAnalyzer.swift */,
 				FA1A1A1A1A1A1A1A1A1A1A02 /* DigestVerificationAnalyzer.swift */,
 				E8E143852F33FF20000FF552 /* DNASequence.swift */,
 				E859C0462F71542000CBCA03 /* DNASequence+ORFs.swift */,
+				E86488DC30532F64005E5B1C /* EnzymeStore.swift */,
 				E81E77732F44CA99003F75AF /* FeatureLibrary.swift */,
 				E8EBD4702F48DE6E00DFAF4F /* Focusedsequencevalues.swift */,
 				E853E0D32F66A1C9009CFB9B /* MethylationSensitivity.swift */,
@@ -231,54 +236,14 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
-		E8E143482F336164000FF552 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				E853E0D52F66CEA6009CFB9B /* WelcomeView.swift */,
-				E8F450322F50FAEE002213D2 /* Cloner64App.swift */,
-				E859DB6B2FE9CFD1008C1F1F /* Claude.txt */,
-				E8F4502E2F5081E7002213D2 /* AlignTwoSequencesView.swift */,
-				E8E143432F336164000FF552 /* AnalysisView.swift */,
-				E83BC3A12F5A121C00B55257 /* AlignTwoProteinSequencesView.swift */,
-				E853E0CF2F64B653009CFB9B /* CompatibleEndsView.swift */,
-				E842264A2FC57E12008EFEE2 /* CompactSequencePanel.swift */,
-				E86E376C2F5EE9E400D2905F /* ConstructBuilderView.swift */,
-				FA2B2B2B2B2B2B2B2B2B2B12 /* ConstructCheckView.swift */,
-				FA1A1A1A1A1A1A1A1A1A1A12 /* DigestVerificationView.swift */,
-				E8E143752F33C551000FF552 /* GraphicalMapView.swift */,
-				E8EBD4602F44D1AC00DFAF4F /* FeatureCollectionView.swift */,
-				E83BC3A32F5A144000B55257 /* HydropathyPlotView.swift */,
-				E8E1437B2F33CC04000FF552 /* ImportPreferencesView.swift */,
-				E86E37682F5E23CA00D2905F /* PCRSimulationView.swift */,
-				E83A94D82F6D9DAD00400C75 /* PredictiveCloningView.swift */,
-				E87B681C2F5625A1004505C7 /* PrimerDesignView.swift */,
-				E87B68202F577581004505C7 /* ProteinWindowView.swift */,
-				E86E376E2F6218B000D2905F /* ReferenceTablesView.swift */,
-				E853E0CD2F64B641009CFB9B /* RestrictionEnzymeListView.swift */,
-				E8E143772F33C567000FF552 /* RestrictionSitesView.swift */,
-				E8E143732F33C534000FF552 /* SequenceEditorView.swift */,
-				E86E37662F5DF0C000D2905F /* SiteUsageView.swift */,
-				E8EBD4722F48DF4B00DFAF4F /* SequenceWindowView.swift */,
-				E859C04A2F7164E500CBCA03 /* ShuttleVectorListView.swift */,
-				E8F450282F4F6FB8002213D2 /* SequenceMapRenderer.swift */,
-				E8F4502A2F4F6FEC002213D2 /* SequenceMapView.swift */,
-				E86E37642F5DEAD200D2905F /* VirtualCutterView.swift */,
-				E8AD324B2F79CC6E001BF10B /* Cloner64.icns */,
-				E841E9892F83A26200F6E7FC /* ContextHelp */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
 		E8E1434C2F336164000FF552 /* DNA_Cloner_macOS */ = {
 			isa = PBXGroup;
 			children = (
-				E8E1433C2F336164000FF552 /* Documentation */,
 				E8E143402F336164000FF552 /* Models */,
+				E801F63C3058648B002FA9A5 /* Views */,
 				E8E143422F336164000FF552 /* Resources */,
-				E8E143482F336164000FF552 /* Views */,
 				E80426252F3A3CDC00D40DEB /* Managers */,
-				E8E1434B2F336164000FF552 /* FILE_LIST.txt */,
-				E8CD1F852FF3E06600DC84F8 /* Cloner_64_Handbook.pdf */,
+				E8A4C486302649CE00BA1E3E /* Cloner_64_Handbook.pdf */,
 			);
 			path = DNA_Cloner_macOS;
 			sourceTree = "<group>";
@@ -347,13 +312,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E8CD1F862FF3E06600DC84F8 /* Cloner_64_Handbook.pdf in Resources */,
-				E841E98B2F83A2BA00F6E7FC /* ContextHelp_Instructions_1.md in Resources */,
-				E8E143582F336164000FF552 /* README.md in Resources */,
-				E8E143592F336164000FF552 /* FILE_LIST.txt in Resources */,
-				E8E1435A2F336164000FF552 /* SETUP.md in Resources */,
-				E859DB6C2FE9CFD1008C1F1F /* Claude.txt in Resources */,
-				E8AD324C2F79CC6E001BF10B /* Cloner64.icns in Resources */,
+				E801F65C3058648B002FA9A5 /* ContextHelp_Instructions_1.md in Resources */,
+				E8A4C487302649CE00BA1E3E /* Cloner_64_Handbook.pdf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -365,57 +325,53 @@
 			buildActionMask = 2147483647;
 			files = (
 				E8EBD45B2F44CEA200DFAF4F /* RestrictionEnzyme.swift in Sources */,
-				E8E1434F2F336164000FF552 /* AnalysisView.swift in Sources */,
+				E801F63D3058648B002FA9A5 /* ProteinWindowView.swift in Sources */,
+				E801F63F3058648B002FA9A5 /* SequenceMapRenderer.swift in Sources */,
+				E801F6403058648B002FA9A5 /* GraphicalMapView.swift in Sources */,
+				E801F6413058648B002FA9A5 /* ShuttleVectorListView.swift in Sources */,
+				E801F6433058648B002FA9A5 /* HydropathyPlotView.swift in Sources */,
+				E801F6443058648B002FA9A5 /* CompactSequencePanel.swift in Sources */,
+				E801F6453058648B002FA9A5 /* SiteUsageView.swift in Sources */,
+				E801F6463058648B002FA9A5 /* AlignTwoSequencesView.swift in Sources */,
+				E801F6483058648B002FA9A5 /* SequenceEditorView.swift in Sources */,
+				E801F6493058648B002FA9A5 /* PCRSimulationView.swift in Sources */,
+				E801F64A3058648B002FA9A5 /* VirtualCutterView.swift in Sources */,
+				E801F64B3058648B002FA9A5 /* SequenceMapView.swift in Sources */,
+				E801F64C3058648B002FA9A5 /* ConstructCheckView.swift in Sources */,
+				E801F64D3058648B002FA9A5 /* FeatureCollectionView.swift in Sources */,
+				E801F64E3058648B002FA9A5 /* PredictiveCloningView.swift in Sources */,
+				E801F64F3058648B002FA9A5 /* ContextHelpPanel.swift in Sources */,
+				E801F6503058648B002FA9A5 /* WelcomeView.swift in Sources */,
+				E801F6513058648B002FA9A5 /* ContextHelpManager.swift in Sources */,
+				E801F6523058648B002FA9A5 /* PrimerDesignView.swift in Sources */,
+				E801F6533058648B002FA9A5 /* ContextMenuHelpBridge.swift in Sources */,
+				E801F6543058648B002FA9A5 /* SequenceWindowView.swift in Sources */,
+				E801F6553058648B002FA9A5 /* ReferenceTablesView.swift in Sources */,
+				E801F6563058648B002FA9A5 /* Cloner64App.swift in Sources */,
+				E801F6573058648B002FA9A5 /* ContextHelpModifier.swift in Sources */,
+				E801F6583058648B002FA9A5 /* ConstructBuilderView.swift in Sources */,
+				E801F6593058648B002FA9A5 /* DigestVerificationView.swift in Sources */,
+				E801F65A3058648B002FA9A5 /* RestrictionEnzymeListView.swift in Sources */,
+				E801F65B3058648B002FA9A5 /* CompatibleEndsView.swift in Sources */,
 				E8EBD0452F797D5E0049050B /* GraphicalMapWindowManager.swift in Sources */,
 				E859C0472F71542000CBCA03 /* DNASequence+ORFs.swift in Sources */,
-				E87B68212F577581004505C7 /* ProteinWindowView.swift in Sources */,
-				E841E98F2F83A2E500F6E7FC /* ContextHelpPanel.swift in Sources */,
-				E8F4502B2F4F6FEC002213D2 /* SequenceMapView.swift in Sources */,
-				E8E143762F33C551000FF552 /* GraphicalMapView.swift in Sources */,
+				E86488DD30532F64005E5B1C /* EnzymeStore.swift in Sources */,
 				E8F450312F50820C002213D2 /* SequenceAligner.swift in Sources */,
-				E86E37652F5DEAD200D2905F /* VirtualCutterView.swift in Sources */,
-				E841E9932F83AB0F00F6E7FC /* ContextMenuHelpBridge.swift in Sources */,
-				E8F450292F4F6FB8002213D2 /* SequenceMapRenderer.swift in Sources */,
-				E86E37692F5E23CA00D2905F /* PCRSimulationView.swift in Sources */,
-				E86E376D2F5EE9E500D2905F /* ConstructBuilderView.swift in Sources */,
 				E8EBD4712F48DE7B00DFAF4F /* Focusedsequencevalues.swift in Sources */,
 				E859C0492F7164CD00CBCA03 /* ShuttleVectorLibrary.swift in Sources */,
-				E83BC3A22F5A121C00B55257 /* AlignTwoProteinSequencesView.swift in Sources */,
-				E83BC3A42F5A144000B55257 /* HydropathyPlotView.swift in Sources */,
 				E859C04D2F71654100CBCA03 /* ShuttleVectorPathfinder.swift in Sources */,
 				E8E143862F33FF20000FF552 /* DNASequence.swift in Sources */,
 				E83A94DB2F6DA14100400C75 /* CloningStrategyAnalyzer.swift in Sources */,
 				FA1A1A1A1A1A1A1A1A1A1A01 /* DigestVerificationAnalyzer.swift in Sources */,
-				FA1A1A1A1A1A1A1A1A1A1A11 /* DigestVerificationView.swift in Sources */,
 				FA2B2B2B2B2B2B2B2B2B2B01 /* ConstructCheckAnalyzer.swift in Sources */,
-				FA2B2B2B2B2B2B2B2B2B2B11 /* ConstructCheckView.swift in Sources */,
-				E842264B2FC57E12008EFEE2 /* CompactSequencePanel.swift in Sources */,
 				E87B681F2F57754F004505C7 /* ProteinSequence.swift in Sources */,
 				E8E143802F33FCC8000FF552 /* XDNAParser.swift in Sources */,
-				E8E143722F33C512000FF552 /* AppState.swift in Sources */,
-				E87B681D2F5625A1004505C7 /* PrimerDesignView.swift in Sources */,
 				E81E77742F44CA99003F75AF /* FeatureLibrary.swift in Sources */,
-				E859C04B2F7164E500CBCA03 /* ShuttleVectorListView.swift in Sources */,
-				E8EBD4612F44D1AC00DFAF4F /* FeatureCollectionView.swift in Sources */,
-				E841E9912F83A2F700F6E7FC /* ContextHelpModifier.swift in Sources */,
-				E86E37672F5DF0C000D2905F /* SiteUsageView.swift in Sources */,
-				E8F450332F50FAEE002213D2 /* Cloner64App.swift in Sources */,
-				E83A94D92F6D9DAD00400C75 /* PredictiveCloningView.swift in Sources */,
 				E8FCA7322F6896E30042FABD /* SnapGeneParser.swift in Sources */,
-				E8EBD4732F48DF5B00DFAF4F /* SequenceWindowView.swift in Sources */,
-				E86E376F2F6218B000D2905F /* ReferenceTablesView.swift in Sources */,
-				E841E98D2F83A2D100F6E7FC /* ContextHelpManager.swift in Sources */,
 				E8E1437A2F33CBF6000FF552 /* SequenceManager.swift in Sources */,
 				E8EBD46B2F4863B000DFAF4F /* FeatureLibrary+Import.swift in Sources */,
-				E8F4502F2F5081E7002213D2 /* AlignTwoSequencesView.swift in Sources */,
-				E8E143742F33C534000FF552 /* SequenceEditorView.swift in Sources */,
 				E853E0D42F66A1C9009CFB9B /* MethylationSensitivity.swift in Sources */,
-				E853E0D62F66CEA6009CFB9B /* WelcomeView.swift in Sources */,
 				E859C0452F71541300CBCA03 /* CloningPrimerTransfer.swift in Sources */,
-				E853E0D02F64B653009CFB9B /* CompatibleEndsView.swift in Sources */,
-				E8E143782F33C567000FF552 /* RestrictionSitesView.swift in Sources */,
-				E853E0CE2F64B641009CFB9B /* RestrictionEnzymeListView.swift in Sources */,
-				E8E1437C2F33CC04000FF552 /* ImportPreferencesView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -550,7 +506,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -567,6 +523,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = DNA_Cloner_macOS/Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -577,7 +534,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.pcm1957.Cloner64;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -600,7 +557,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 5;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -617,6 +574,7 @@
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = DNA_Cloner_macOS/Resources/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -627,7 +585,7 @@
 					"@executable_path/Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
-				MARKETING_VERSION = 1.1;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.pcm1957.Cloner64;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
