@@ -356,7 +356,7 @@ enum GeneticCode: String, CaseIterable {
         }
     }
     
-    static let standardCodonTable: [String: Character] = [
+    nonisolated static let standardCodonTable: [String: Character] = [
         "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
         "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
         "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
@@ -474,7 +474,25 @@ class DNASequence: ObservableObject, Identifiable {
         redoStack.removeAll()
     }
 
+    /// Feature most recently recoloured from a map's colour picker. Dragging
+    /// around the colour panel sends many changes; only the first change to a
+    /// given feature records an undo step, so one Undo restores the old colour.
+    private var lastRecolouredFeatureID: UUID?
+
+    /// Change one feature's colour from a map (Graphical Map or Sequence Map).
+    /// Saved with the sequence like any other feature edit, and undoable.
+    func setFeatureColor(_ featureID: UUID, to color: CodableColor) {
+        guard let idx = features.firstIndex(where: { $0.id == featureID }),
+              features[idx].color != color else { return }
+        if lastRecolouredFeatureID != featureID {
+            registerUndo()
+            lastRecolouredFeatureID = featureID
+        }
+        features[idx].color = color
+    }
+
     func undo() {
+        lastRecolouredFeatureID = nil
         guard let previous = undoStack.popLast() else { return }
         isUndoRedoing = true
         redoStack.append(currentSnapshot)
@@ -484,6 +502,7 @@ class DNASequence: ObservableObject, Identifiable {
     }
 
     func redo() {
+        lastRecolouredFeatureID = nil
         guard let next = redoStack.popLast() else { return }
         isUndoRedoing = true
         undoStack.append(currentSnapshot)
@@ -491,10 +510,7 @@ class DNASequence: ObservableObject, Identifiable {
         features = next.features
         isUndoRedoing = false
     }
-    
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
-    
+
     /// Tracks changes to sequence content and features automatically
     private var dirtyCancellables = Set<AnyCancellable>()
 
@@ -549,20 +565,12 @@ class DNASequence: ObservableObject, Identifiable {
     }
     
     // MARK: - Sequence Analysis Methods
-    
-    /// Calculate GC content as a percentage
-    func gcContent() -> Double {
-        let seq = sequence.uppercased()
-        let gcCount = seq.filter { $0 == "G" || $0 == "C" }.count
-        guard seq.count > 0 else { return 0 }
-        return Double(gcCount) / Double(seq.count) * 100.0
-    }
-    
+
     /// Reverse complement of a DNA/RNA string — standalone, no object allocation.
     /// Handles IUPAC ambiguity codes and preserves case.
     /// Used internally by translate() and findORFs() to avoid creating temporary
     /// DNASequence ObservableObjects (which would spin up 8 Combine subscriptions each).
-    static func reverseComplementString(_ seq: String) -> String {
+    nonisolated static func reverseComplementString(_ seq: String) -> String {
         let complementMap: [Character: Character] = [
             "A": "T", "T": "A", "G": "C", "C": "G",
             "a": "t", "t": "a", "g": "c", "c": "g",
@@ -630,7 +638,5 @@ class DNASequence: ObservableObject, Identifiable {
 
         return protein
     }
-    
 
-    
 }

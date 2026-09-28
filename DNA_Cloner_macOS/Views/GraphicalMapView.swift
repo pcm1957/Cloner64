@@ -101,20 +101,18 @@ struct GraphicalMapWindow: View {
                         
                         Divider()
                         
-                        Toggle(isOn: $useMyEnzymesOnly) {
-                            Label("My Enzymes Only", systemImage: "star.fill")
-                                .font(.system(size: 13))
-                        }
-                        .disabled(RestrictionEnzymeDatabase.shared.myEnzymeNames.isEmpty)
-                        .help(RestrictionEnzymeDatabase.shared.myEnzymeNames.isEmpty
-                              ? "No enzymes marked — use Tools → Restriction Enzyme List to star enzymes"
-                              : "Show only enzymes in your freezer")
-                        
-                        Divider()
-                        
                         Toggle("Particular Sites", isOn: $showParticularSites)
                             .font(.system(size: 13))
                         if showParticularSites {
+                            // Only limits the Select Enzymes list — does not change the map
+                            Toggle(isOn: $useMyEnzymesOnly) {
+                                Label("My Enzymes Only", systemImage: "star.fill")
+                                    .font(.system(size: 12))
+                            }
+                            .disabled(RestrictionEnzymeDatabase.shared.myEnzymeNames.isEmpty)
+                            .help(RestrictionEnzymeDatabase.shared.myEnzymeNames.isEmpty
+                                  ? "No enzymes marked — use Tools → Restriction Enzyme List to star enzymes"
+                                  : "List only your starred enzymes in Select Enzymes")
                             Button(selectedParticularEnzymes.isEmpty
                                    ? "Select Enzymes…"
                                    : "\(selectedParticularEnzymes.count) selected…") {
@@ -138,9 +136,6 @@ struct GraphicalMapWindow: View {
                             ColourKeyRow(gradient: [Color(red: 0.82, green: 0.61, blue: 0.35), Color(red: 0.35, green: 0.80, blue: 0.75)], label: "Double + blunt")
                             ColourKeyRow(color: Color(red: 0.35, green: 0.80, blue: 0.75), label: "Blunt (3+ cuts)")
                             ColourKeyRow(color: Color(red: 0.68, green: 0.85, blue: 1.0), label: "Particular enzyme")
-                            if useMyEnzymesOnly {
-                                ColourKeyRow(color: Color(red: 0.88, green: 0.78, blue: 0.97), label: "My enzyme (multi-cutter)")
-                            }
                         }
                     }
                     .padding(12)
@@ -347,7 +342,6 @@ struct GraphicalMapWindow: View {
             mapScale: $mapScale,
             labelFontSize: labelFontSize,
             resetLabelTrigger: $resetLabelTrigger,
-            useMyEnzymesOnly: useMyEnzymesOnly,
             isReady: $mapIsReady
         )
         .popover(isPresented: $showFeaturePicker) {
@@ -364,16 +358,8 @@ struct GraphicalMapWindow: View {
     // MARK: - Home
 
     private func goHome() {
-        for window in NSApp.windows where window != NSApp.keyWindow {
-            let title = window.title
-            if title == sequence.name
-                || (sequence.name.isEmpty && (title == "Untitled Sequence" || title == "Untitled"))
-            {
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
-                return
-            }
-        }
+        // Brings the sequence window forward, or reopens it if it was closed
+        SequenceManager.shared?.showSequenceWindow(for: sequence)
     }
     
     // MARK: - Export / Print
@@ -738,9 +724,6 @@ struct GraphicalMapView: View {
     /// When true, the fragment selection bar at the bottom is hidden (e.g. in construct preview).
     var hideFragmentBar: Bool = false
     
-    /// When true, only show enzymes the user has marked as "My Enzymes" (freezer stock).
-    var useMyEnzymesOnly: Bool = false
-    
     /// Set to true once the first site scan completes, so the parent
     /// can suppress display until the map is fully ready.
     @Binding var isReady: Bool
@@ -846,7 +829,6 @@ struct GraphicalMapView: View {
     @State private var selectedORFID: UUID? = nil
     @State private var showFeatureCopied: Bool = false
     @State private var featureLabelOffsets: [String: CGSize] = [:]
-    @State private var activeFeatureDragKey: String? = nil
     
     // Draggable title offset
     @State private var titleOffset: CGSize = .zero
@@ -876,9 +858,6 @@ struct GraphicalMapView: View {
             if showDoubleSites     && site.siteCount == 2                              { return true }
             if showParticularSites && selectedParticularEnzymes.contains(site.enzyme)  { return true }
             if showBluntSites      && isBluntCutter(site.enzyme)                       { return true }
-            // When My Enzymes filter is on, show every site for every starred enzyme
-            // regardless of cut count — the user explicitly wants to see their stock.
-            if useMyEnzymesOnly    && RestrictionEnzymeDatabase.shared.myEnzymeNames.contains(site.enzyme) { return true }
             return false
         }
     }
@@ -891,21 +870,18 @@ struct GraphicalMapView: View {
         uniqueOverride:            Bool?       = nil,
         doubleOverride:            Bool?       = nil,
         particularOverride:        Bool?       = nil,
-        particularEnzymesOverride: Set<String>? = nil,
-        myEnzymesOverride:         Bool?       = nil
+        particularEnzymesOverride: Set<String>? = nil
     ) -> [(enzyme: String, position: Int, siteCount: Int)] {
         let useBlunt      = bluntOverride             ?? showBluntSites
         let useUnique     = uniqueOverride             ?? showUniqueSites
         let useDouble     = doubleOverride             ?? showDoubleSites
         let useParticular = particularOverride         ?? showParticularSites
         let useEnzymes    = particularEnzymesOverride  ?? selectedParticularEnzymes
-        let useMyEnzymes  = myEnzymesOverride          ?? useMyEnzymesOnly
         return cachedAllEnzymeSites.filter { site in
             if useUnique     && site.siteCount == 1                                                              { return true }
             if useDouble     && site.siteCount == 2                                                              { return true }
             if useParticular && useEnzymes.contains(site.enzyme)                                                 { return true }
             if useBlunt      && isBluntCutter(site.enzyme)                                                       { return true }
-            if useMyEnzymes  && RestrictionEnzymeDatabase.shared.myEnzymeNames.contains(site.enzyme)             { return true }
             return false
         }
     }
@@ -929,16 +905,15 @@ struct GraphicalMapView: View {
     /// Runs the full enzyme site scan on a background thread (the expensive part).
     /// Only call this when the sequence or enzyme list changes — NOT for filter toggles.
     /// Filtering is done synchronously by the cachedFilteredSites computed property.
-    /// Call refreshSiteCache() normally, or refreshSiteCache(useMyEnzymes: newValue)
-    /// from an onChange closure to avoid capturing a stale copy of useMyEnzymesOnly.
-    private func refreshSiteCache(useMyEnzymes: Bool? = nil) {
+    /// Always scans the full enzyme database; which sites are drawn is decided
+    /// by the Unique / Double / Blunt / Particular filters.
+    private func refreshSiteCache() {
         let seq          = sequence.sequence
         let circular     = sequence.isCircular
-        let useMyEnzymes = useMyEnzymes ?? useMyEnzymesOnly
 
         DispatchQueue.global(qos: .userInitiated).async {
             let database   = RestrictionEnzymeDatabase.shared
-            let enzymeList = useMyEnzymes ? database.myEnzymes : database.enzymes
+            let enzymeList = database.enzymes
 
             var allSites: [(enzyme: String, position: Int)] = []
             for enzyme in enzymeList {
@@ -971,7 +946,6 @@ struct GraphicalMapView: View {
 
     /// Cached result of calculateLabelPlacements for the circular map.
     /// Recomputed only when sites, methylation, scale, features, or font change.
-
 
     private func labelKey(for site: (enzyme: String, position: Int, siteCount: Int)) -> String {
         "\(site.enzyme)_\(site.position)"
@@ -1137,8 +1111,6 @@ struct GraphicalMapView: View {
             Color(red: 0.82, green: 0.61, blue: 0.35) // Brown - double
         } else if isUnique {
             Color(red: 1.0, green: 0.98, blue: 0.86) // Cream - unique
-        } else if useMyEnzymesOnly && RestrictionEnzymeDatabase.shared.myEnzymeNames.contains(site.enzyme) {
-            Color(red: 0.88, green: 0.78, blue: 0.97) // Lavender — My Enzyme (multi-cutter, not unique/double/blunt)
         } else {
             Color.white
         }
@@ -1207,7 +1179,15 @@ struct GraphicalMapView: View {
         let isCoding = feature.type == .gene || feature.type == .cds
         
         return HStack(spacing: 16) {
-            Circle().fill(feature.color.color).frame(width: 10, height: 10)
+            // Click the colour well to recolour this feature (saved with the sequence)
+            ColorPicker("", selection: Binding(
+                get: { sequence.features.first(where: { $0.id == feature.id })?.color.color ?? feature.color.color },
+                set: { sequence.setFeatureColor(feature.id, to: CodableColor($0)) }
+            ), supportsOpacity: false)
+            .labelsHidden()
+            .frame(width: 28)
+            .help("Change this feature's colour")
+            .contextHelp("gmap.featureColour")
             Text(feature.name).fontWeight(.semibold)
             Divider().frame(height: 14)
             Text(feature.type.displayName).foregroundColor(.secondary)
@@ -1782,7 +1762,6 @@ struct GraphicalMapView: View {
             refreshSiteCache()
         }
         .onChange(of: sequence.sequence)         { _ in refreshSiteCache() }
-        .onChange(of: useMyEnzymesOnly)          { newValue in cachedAllEnzymeSites = []; refreshSiteCache(useMyEnzymes: newValue) }
         .onChange(of: showUniqueSites)           { newValue in refreshMethylationCache(sitesOverride: filteredSites(uniqueOverride:            newValue)) }
         .onChange(of: showDoubleSites)           { newValue in refreshMethylationCache(sitesOverride: filteredSites(doubleOverride:            newValue)) }
         .onChange(of: showBluntSites)            { newValue in refreshMethylationCache(sitesOverride: filteredSites(bluntOverride:             newValue)) }
@@ -1990,7 +1969,6 @@ struct GraphicalMapView: View {
         }
         // Sequence or enzyme list changed: full rescan needed
         .onChange(of: sequence.sequence)          { _ in refreshSiteCache(); firstCutSite = nil; secondCutSite = nil }
-        .onChange(of: useMyEnzymesOnly)           { newValue in cachedAllEnzymeSites = []; refreshSiteCache(useMyEnzymes: newValue) }
         // Filter flag changes: cachedFilteredSites (computed) updates automatically.
         // Pass newValue explicitly to filteredSites() to avoid stale closure capture.
         .onChange(of: showUniqueSites)            { newValue in refreshMethylationCache(sitesOverride: filteredSites(uniqueOverride:            newValue)) }
@@ -2015,60 +1993,8 @@ struct GraphicalMapView: View {
         let isTopHalf: Bool  // Changed from quadrant to simpler top/bottom
         let layer: Int
     }
-    
 
-    
     // Helper: group sites into clusters by angular proximity
-    private func clusterSites(
-        sites: [(enzyme: String, position: Int, siteCount: Int)],
-        sequenceLength: Int
-    ) -> [[(enzyme: String, position: Int, siteCount: Int)]] {
-        // Sort by angle
-        let sortedSites = sites.sorted { a, b in
-            angleForPosition(a.position, sequenceLength: sequenceLength) <
-            angleForPosition(b.position, sequenceLength: sequenceLength)
-        }
-        
-        var clusters: [[(enzyme: String, position: Int, siteCount: Int)]] = []
-        var currentCluster: [(enzyme: String, position: Int, siteCount: Int)] = []
-        
-        for site in sortedSites {
-            if currentCluster.isEmpty {
-                currentCluster.append(site)
-            } else {
-                let prevSite = currentCluster.last!
-                let prevAngle = angleForPosition(prevSite.position, sequenceLength: sequenceLength)
-                let currentAngle = angleForPosition(site.position, sequenceLength: sequenceLength)
-                var angularDist = abs(currentAngle - prevAngle)
-                if angularDist > 180 { angularDist = 360 - angularDist }
-                
-                if angularDist <= 12 {
-                    currentCluster.append(site)
-                } else {
-                    clusters.append(currentCluster)
-                    currentCluster = [site]
-                }
-            }
-        }
-        if !currentCluster.isEmpty {
-            clusters.append(currentCluster)
-        }
-        
-        // Check wrap-around merge (first and last cluster)
-        if clusters.count >= 2 {
-            let lastAngle = angleForPosition(clusters.last!.last!.position, sequenceLength: sequenceLength)
-            let firstAngle = angleForPosition(clusters.first!.first!.position, sequenceLength: sequenceLength)
-            var angularDist = abs(firstAngle - lastAngle)
-            if angularDist > 180 { angularDist = 360 - angularDist }
-            if angularDist <= 12 {
-                let merged = clusters.last! + clusters.first!
-                clusters[0] = merged
-                clusters.removeLast()
-            }
-        }
-        
-        return clusters
-    }
     
     // Side-aware layout: column for busy sides, radial for sparse sides
     private func calculateLabelPlacements(
@@ -2473,11 +2399,20 @@ struct GraphicalMapView: View {
             }
     }
     
+    /// Feature colour as drawn on the map. White or near-white colours (common
+    /// in imported files) would vanish on the white background, so they are
+    /// darkened just enough to show; ordinary colours and pastels are unchanged.
+    /// The stored colour is not altered.
+    private func mapColor(_ c: CodableColor) -> Color {
+        Color(nsColor: SequenceMapRenderer.visibleOnWhite(
+            red: c.red, green: c.green, blue: c.blue, maxLuminance: 0.60))
+    }
+
     @ViewBuilder
     private func featureLabelBackground(name: String) -> some View {
         if let feature = sequence.features.first(where: { $0.name == name }) {
             RoundedRectangle(cornerRadius: 3)
-                .fill(feature.color.color.opacity(0.85))
+                .fill(mapColor(feature.color).opacity(0.85))
         } else {
             RoundedRectangle(cornerRadius: 3)
                 .fill(Color.gray.opacity(0.5))
@@ -2489,52 +2424,11 @@ struct GraphicalMapView: View {
     private func xForPosition(_ position: Int, lineX: CGFloat, lineLength: CGFloat, sequenceLength: Int) -> CGFloat {
         lineX + CGFloat(position) / CGFloat(sequenceLength) * lineLength
     }
-    
-    private func markerInterval(for sequenceLength: Int) -> Int {
-        if sequenceLength > 20000 { return 5000 }
-        else if sequenceLength > 10000 { return 2000 }
-        else if sequenceLength > 5000 { return 1000 }
-        else if sequenceLength > 2000 { return 500 }
-        else { return 100 }
-    }
-    
-    @ViewBuilder
-    private func linearPositionMarkers(lineX: CGFloat, lineLength: CGFloat, lineY: CGFloat, sequenceLength: Int) -> some View {
-        let interval = markerInterval(for: sequenceLength)
-        let markerCount = sequenceLength / interval
-        
-        ForEach(0...markerCount, id: \.self) { i in
-            let pos = i * interval
-            if pos <= sequenceLength {
-                let x = xForPosition(pos, lineX: lineX, lineLength: lineLength, sequenceLength: sequenceLength)
-                Path { path in
-                    path.move(to: CGPoint(x: x, y: lineY + 3))
-                    path.addLine(to: CGPoint(x: x, y: lineY + 10))
-                }
-                .stroke(Color.gray.opacity(0.5), lineWidth: 1)
-                
-                Text("\(pos)")
-                    .font(.system(size: labelFontSize - 1))
-                    .foregroundColor(.gray)
-                    .position(x: x, y: lineY + 20)
-            }
-        }
-        
-        Text("1")
-            .font(.system(size: labelFontSize, weight: .semibold))
-            .foregroundColor(.gray)
-            .position(x: lineX, y: lineY + 20)
-        
-        Text("\(sequenceLength)")
-            .font(.system(size: labelFontSize, weight: .semibold))
-            .foregroundColor(.gray)
-            .position(x: lineX + lineLength, y: lineY + 20)
-    }
-    
+
     private func linearFeatureSegment(feature: Feature, lineX: CGFloat, lineLength: CGFloat, lineY: CGFloat, sequenceLength: Int) -> some View {
         let startX = xForPosition(feature.start, lineX: lineX, lineLength: lineLength, sequenceLength: sequenceLength)
         let endX = xForPosition(feature.end, lineX: lineX, lineLength: lineLength, sequenceLength: sequenceLength)
-        let featureColor = feature.color.color
+        let featureColor = mapColor(feature.color)
         let halfHeight: CGFloat = 5
         let arrowSize: CGFloat = 6
         
@@ -3087,7 +2981,7 @@ struct GraphicalMapView: View {
             bodyEnd = endAngle
         }
         
-        let featureColor = feature.color.color
+        let featureColor = mapColor(feature.color)
         
         return ZStack {
             Path { path in
@@ -3250,341 +3144,11 @@ struct GraphicalMapView: View {
     }
     
     private func reverseComplement(_ seq: String) -> String {
-        let complementMap: [Character: Character] = [
-            "A": "T", "T": "A", "G": "C", "C": "G",
-            "a": "t", "t": "a", "g": "c", "c": "g",
-            "N": "N", "n": "n"
-        ]
-        return String(seq.reversed().map { complementMap[$0] ?? $0 })
+        DNASequence.reverseComplementString(seq)
     }
     
     // MARK: - Feature Labels (collision-aware)
-    
-    /// Place all feature labels outside the circle, dodging enzyme label rects
-    private func featureLabelsView(features: [Feature], center: CGPoint, radius: CGFloat, enzymeRects: [CGRect], enzymeLines: [(CGPoint, CGPoint)], canvasSize: CGSize) -> some View {
-        let seqLen = sequence.sequence.count
-        
-        let labelData = features.map { feature -> (feature: Feature, startAngle: Double, endAngle: Double) in
-            let s = angleForPosition(feature.start, sequenceLength: seqLen)
-            let e = angleForPosition(feature.end, sequenceLength: seqLen)
-            return (feature, s, e)
-        }
-        
-        let placements = computeFeatureLabelPlacements(labelData: labelData, center: center, radius: radius, enzymeRects: enzymeRects, enzymeLines: enzymeLines, canvasSize: canvasSize)
-        
-        return ZStack {
-            ForEach(Array(placements.enumerated()), id: \.offset) { _, placement in
-                let fKey = "feature_\(placement.feature.id)"
-                let offset = featureLabelOffsets[fKey] ?? .zero
-                featureConnectorView(center: center, radius: radius, connAngle: placement.connAngle, labelRect: placement.rect, offset: offset)
-            }
-            ForEach(Array(placements.enumerated()), id: \.offset) { _, placement in
-                let fKey = "feature_\(placement.feature.id)"
-                let offset = featureLabelOffsets[fKey] ?? .zero
-                draggableFeatureLabel(feature: placement.feature, labelRect: placement.rect, offset: offset, key: fKey)
-            }
-        }
-    }
-    
-    private struct FeatureLabelPlacement {
-        let feature: Feature
-        let connAngle: Double
-        let rect: CGRect
-    }
-    
-    /// Try multiple connection angles along the feature arc AND multiple distances.
-    /// Pick the (angle, distance) combo that avoids enzyme rects AND enzyme connector lines.
-    private func computeFeatureLabelPlacements(
-        labelData: [(feature: Feature, startAngle: Double, endAngle: Double)],
-        center: CGPoint,
-        radius: CGFloat,
-        enzymeRects: [CGRect],
-        enzymeLines: [(CGPoint, CGPoint)],
-        canvasSize: CGSize
-    ) -> [FeatureLabelPlacement] {
-        var occupiedRects = enzymeRects
-        var placedConnectors: [(CGPoint, CGPoint)] = []  // Track feature connector lines for crossing penalty
-        var results: [FeatureLabelPlacement] = []
-        let circleExclusionRadius = radius + 28  // feature arc outer edge + generous margin
-        let canvasBounds = CGRect(x: 8, y: 8, width: canvasSize.width - 16, height: canvasSize.height - 16)
-        
-        for (feature, startAngle, endAngle) in labelData {
-            // Truncate very long feature names to keep labels manageable
-            let truncatedName: String
-            if feature.name.count > 40 {
-                truncatedName = String(feature.name.prefix(37)) + "..."
-            } else {
-                truncatedName = feature.name
-            }
-            let bpLen = abs(feature.end - feature.start)
-            let isCoding = feature.type == .gene || feature.type == .cds
-            let sizeStr = isCoding && bpLen >= 3 ? " (\(bpLen) bp / \(bpLen / 3) aa)" : " (\(bpLen) bp)"
-            let labelText = "\(feature.start + 1)..\(feature.end) \(truncatedName)\(sizeStr)"
-            let labelWidth: CGFloat = CGFloat(labelText.count) * 7.5 + 20
-            let labelHeight: CGFloat = 18
-            
-            var span = endAngle - startAngle
-            if span < 0 { span += 360 }
-            var midAngle = startAngle + span / 2
-            if midAngle > 360 { midAngle -= 360 }
-            if midAngle < -180 { midAngle += 360 }
-            
-            // Build candidate angles: midpoint first, then spreading toward arc edges
-            var candidateAngles: [Double] = [midAngle]
-            let steps = max(2, Int(span / 8))
-            for i in 1...steps {
-                let frac = Double(i) / Double(steps)
-                var a1 = midAngle - frac * span * 0.45
-                var a2 = midAngle + frac * span * 0.45
-                if a1 < -180 { a1 += 360 }
-                if a2 > 360 { a2 -= 360 }
-                candidateAngles.append(a1)
-                candidateAngles.append(a2)
-            }
-            
-            var bestRect = CGRect.zero
-            var bestAngle = midAngle
-            var bestScore = Int.max
-            
-            for angle in candidateAngles {
-                let rad = angle * .pi / 180.0
-                let cosA = CGFloat(cos(rad))
-                let sinA = CGFloat(sin(rad))
-                
-                let tickEnd = CGPoint(
-                    x: center.x + (radius + 8) * cosA,
-                    y: center.y + (radius + 8) * sinA
-                )
-                
-                for dist in stride(from: CGFloat(22), through: CGFloat(280), by: CGFloat(14)) {
-                    let anchorX = center.x + (radius + dist) * cosA
-                    let anchorY = center.y + (radius + dist) * sinA
-                    
-                    let labelX: CGFloat
-                    let labelY: CGFloat
-                    
-                    if abs(cosA) >= abs(sinA) {
-                        labelX = cosA >= 0 ? anchorX : anchorX - labelWidth
-                        labelY = anchorY - labelHeight / 2
-                    } else {
-                        labelX = anchorX - labelWidth / 2
-                        labelY = sinA >= 0 ? anchorY : anchorY - labelHeight
-                    }
-                    
-                    let candidateRect = CGRect(x: labelX, y: labelY, width: labelWidth, height: labelHeight)
-                    
-                    // Reject labels that extend outside the canvas
-                    if !canvasBounds.contains(candidateRect) {
-                        continue
-                    }
-                    
-                    // CRITICAL: reject labels overlapping the plasmid circle
-                    if rectOverlapsCircle(rect: candidateRect, center: center, radius: circleExclusionRadius) {
-                        continue
-                    }
-                    
-                    let hasRectCollision = occupiedRects.contains { existing in
-                        existing.insetBy(dx: -4, dy: -2).intersects(candidateRect)
-                    }
-                    
-                    let attachPt = nearestRectEdgePoint(rect: candidateRect, toward: tickEnd)
-                    var lineCrossings = 0
-                    
-                    // Check connector crossing enzyme connector lines
-                    for (lineA, lineB) in enzymeLines {
-                        if segmentsIntersect(a: tickEnd, b: attachPt, c: lineA, d: lineB) {
-                            lineCrossings += 1
-                        }
-                    }
-                    
-                    // Check connector crossing already-placed feature connector lines
-                    for (lineA, lineB) in placedConnectors {
-                        if segmentsIntersect(a: tickEnd, b: attachPt, c: lineA, d: lineB) {
-                            lineCrossings += 2
-                        }
-                    }
-                    
-                    // Check connector crossing enzyme label rects
-                    for eRect in enzymeRects {
-                        if lineIntersectsRect(a: tickEnd, b: attachPt, rect: eRect.insetBy(dx: -2, dy: -2)) {
-                            lineCrossings += 1
-                        }
-                    }
-                    
-                    // Check connector line doesn't cross back over the plasmid circle
-                    if lineIntersectsCircle(a: tickEnd, b: attachPt, center: center, radius: radius - 4) {
-                        lineCrossings += 5
-                    }
-                    
-                    let score = (hasRectCollision ? 1000 : 0) + lineCrossings + Int(dist / 14)
-                    
-                    if score < bestScore {
-                        bestScore = score
-                        bestRect = candidateRect
-                        bestAngle = angle
-                    }
-                    
-                    if score == 0 { break }
-                }
-                
-                if bestScore == 0 { break }
-            }
-            
-            // Fallback: if no valid position found, clamp to canvas bounds
-            if bestRect == .zero {
-                let rad = midAngle * .pi / 180.0
-                let fallbackDist: CGFloat = 60
-                let fx = center.x + (radius + fallbackDist) * CGFloat(cos(rad))
-                let fy = center.y + (radius + fallbackDist) * CGFloat(sin(rad))
-                let clampedX = min(max(fx, canvasBounds.minX), canvasBounds.maxX - labelWidth)
-                let clampedY = min(max(fy, canvasBounds.minY), canvasBounds.maxY - labelHeight)
-                bestRect = CGRect(x: clampedX, y: clampedY, width: labelWidth, height: labelHeight)
-            }
-            
-            // Record this connector line so subsequent features avoid crossing it
-            let finalRad = bestAngle * .pi / 180.0
-            let tickEnd = CGPoint(
-                x: center.x + (radius + 8) * CGFloat(cos(finalRad)),
-                y: center.y + (radius + 8) * CGFloat(sin(finalRad))
-            )
-            let attachPt = nearestRectEdgePoint(rect: bestRect, toward: tickEnd)
-            placedConnectors.append((tickEnd, attachPt))
-            
-            occupiedRects.append(bestRect)
-            results.append(FeatureLabelPlacement(feature: feature, connAngle: bestAngle, rect: bestRect))
-        }
-        
-        return results
-    }
-    
-    /// Check if any part of a rect overlaps a circle
-    private func rectOverlapsCircle(rect: CGRect, center: CGPoint, radius: CGFloat) -> Bool {
-        // Find closest point on rect to circle center
-        let closestX = min(max(center.x, rect.minX), rect.maxX)
-        let closestY = min(max(center.y, rect.minY), rect.maxY)
-        let dx = closestX - center.x
-        let dy = closestY - center.y
-        return (dx * dx + dy * dy) < (radius * radius)
-    }
-    
-    /// Check if a line segment intersects a circle (enters the circle interior)
-    private func lineIntersectsCircle(a: CGPoint, b: CGPoint, center: CGPoint, radius: CGFloat) -> Bool {
-        // Vector from a to b
-        let dx = b.x - a.x
-        let dy = b.y - a.y
-        // Vector from a to center
-        let fx = a.x - center.x
-        let fy = a.y - center.y
-        
-        let aa = dx * dx + dy * dy
-        let bb = 2 * (fx * dx + fy * dy)
-        let cc = fx * fx + fy * fy - radius * radius
-        
-        var discriminant = bb * bb - 4 * aa * cc
-        if discriminant < 0 { return false }
-        
-        discriminant = sqrt(discriminant)
-        let t1 = (-bb - discriminant) / (2 * aa)
-        let t2 = (-bb + discriminant) / (2 * aa)
-        
-        // Check if either intersection point is within the segment [0, 1]
-        if t1 >= 0 && t1 <= 1 { return true }
-        if t2 >= 0 && t2 <= 1 { return true }
-        
-        return false
-    }
-    
-    /// Feature connector: tick + line
-    private func featureConnectorView(center: CGPoint, radius: CGFloat, connAngle: Double, labelRect: CGRect, offset: CGSize) -> some View {
-        let rad = connAngle * .pi / 180.0
-        let cosA = CGFloat(cos(rad))
-        let sinA = CGFloat(sin(rad))
-        
-        let tickStart = CGPoint(
-            x: center.x + radius * cosA,
-            y: center.y + radius * sinA
-        )
-        let tickEnd = CGPoint(
-            x: center.x + (radius + 8) * cosA,
-            y: center.y + (radius + 8) * sinA
-        )
-        
-        let offsetRect = labelRect.offsetBy(dx: offset.width, dy: offset.height)
-        let attachPt = nearestRectEdgePoint(rect: offsetRect, toward: tickEnd)
-        
-        return ZStack {
-            Path { path in
-                path.move(to: tickStart)
-                path.addLine(to: tickEnd)
-            }
-            .stroke(Color.black, lineWidth: 2)
-            
-            Path { path in
-                path.move(to: tickEnd)
-                path.addLine(to: attachPt)
-            }
-            .stroke(Color.black, lineWidth: 1)
-        }
-    }
-    
-    /// Draggable feature label
-    private func draggableFeatureLabel(feature: Feature, labelRect: CGRect, offset: CGSize, key: String) -> some View {
-        let truncatedName: String = feature.name.count > 40 ? String(feature.name.prefix(37)) + "..." : feature.name
-        let bpLen = abs(feature.end - feature.start)
-        let isCoding = feature.type == .gene || feature.type == .cds
-        let sizeStr = isCoding && bpLen >= 3 ? " (\(bpLen) bp / \(bpLen / 3) aa)" : " (\(bpLen) bp)"
-        let labelText = "\(feature.start + 1)..\(feature.end) \(truncatedName)\(sizeStr)"
-        let featureColor = feature.color.color
-        let isSelected = selectedFeatureID == feature.id
-        let isDragging = activeFeatureDragKey == key
-        
-        return Text(labelText)
-            .font(.system(size: labelFontSize, weight: .medium))
-            .foregroundColor(.black)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(Color(NSColor.textBackgroundColor))
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(featureColor.opacity(0.35))
-                }
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(isSelected ? Color.blue : Color.black, lineWidth: isSelected ? 2 : (isDragging ? 1.5 : 1))
-            )
-            .position(
-                x: labelRect.midX + offset.width,
-                y: labelRect.midY + offset.height
-            )
-            .onTapGesture(count: 2) {
-                handleFeatureDoubleClick(feature)
-            }
-            .onTapGesture(count: 1) {
-                selectedFeatureID = selectedFeatureID == feature.id ? nil : feature.id
-            }
-            .gesture(
-                DragGesture(minimumDistance: 4)
-                    .onChanged { value in
-                        activeFeatureDragKey = key
-                        if featureLabelOffsets[key + "_dragStart"] == nil {
-                            featureLabelOffsets[key + "_dragStart"] = featureLabelOffsets[key] ?? .zero
-                        }
-                        let start = featureLabelOffsets[key + "_dragStart"] ?? .zero
-                        featureLabelOffsets[key] = CGSize(
-                            width: start.width + value.translation.width,
-                            height: start.height + value.translation.height
-                        )
-                    }
-                    .onEnded { _ in
-                        activeFeatureDragKey = nil
-                        featureLabelOffsets.removeValue(forKey: key + "_dragStart")
-                    }
-            )
-    }
-    
+
     /// Check if two line segments intersect
     private func segmentsIntersect(a: CGPoint, b: CGPoint, c: CGPoint, d: CGPoint) -> Bool {
         let denom = (b.x - a.x) * (d.y - c.y) - (b.y - a.y) * (d.x - c.x)
@@ -3605,29 +3169,6 @@ struct GraphicalMapView: View {
             if segmentsIntersect(a: a, b: b, c: corners[i], d: corners[(i + 1) % 4]) { return true }
         }
         return false
-    }
-    
-    /// Find the center of the rect edge that faces the given external point
-    private func nearestRectEdgePoint(rect: CGRect, toward point: CGPoint) -> CGPoint {
-        let dx = point.x - rect.midX
-        let dy = point.y - rect.midY
-        
-        // Pick the edge whose outward normal best aligns with the direction to the point
-        if abs(dx) / rect.width > abs(dy) / rect.height {
-            // Horizontal dominant — left or right edge center
-            if dx >= 0 {
-                return CGPoint(x: rect.maxX, y: rect.midY)
-            } else {
-                return CGPoint(x: rect.minX, y: rect.midY)
-            }
-        } else {
-            // Vertical dominant — top or bottom edge center
-            if dy >= 0 {
-                return CGPoint(x: rect.midX, y: rect.maxY)
-            } else {
-                return CGPoint(x: rect.midX, y: rect.minY)
-            }
-        }
     }
 
     private func angleForPosition(_ position: Int, sequenceLength: Int) -> Double {

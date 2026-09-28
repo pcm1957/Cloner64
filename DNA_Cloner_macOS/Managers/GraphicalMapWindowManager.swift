@@ -65,7 +65,10 @@ class GraphicalMapWindowManager {
             return
         }
         // Create the SwiftUI view
+        // The dispatcher lets this window open sequence windows (e.g. its Home
+        // button) even when no sequence window is left open to do it.
         let mapView = GraphicalMapWindow(sequence: sequence)
+            .modifier(SequenceWindowOpenDispatcher())
         
         // Wrap in a hosting controller
         let hostingController = NSHostingController(rootView: mapView)
@@ -105,33 +108,4 @@ class GraphicalMapWindowManager {
         }
     }
     
-    /// Closes all graphical map windows
-    func closeAllMapWindows() {
-        mapWindows.forEach { $0.close() }
-        mapWindows.removeAll()
-    }
-}
-
-// MARK: - Usage Example
-// Add this to your main ContentView or sequence view:
-/*
- Button("Show Graphical Map") {
-     GraphicalMapWindowManager.shared.openGraphicalMapWindow(for: sequence)
- }
- .keyboardShortcut("g", modifiers: [.command, .shift])
-*/
-
-// MARK: - Alternative: Sheet-based approach (if you prefer sheets over windows)
-extension View {
-    func graphicalMapSheet(
-        sequence: Binding<DNASequence?>,
-        isPresented: Binding<Bool>
-    ) -> some View {
-        self.sheet(isPresented: isPresented) {
-            if let seq = sequence.wrappedValue {
-                GraphicalMapWindow(sequence: seq)
-                    .frame(minWidth: 800, minHeight: 600)
-            }
-        }
-    }
 }

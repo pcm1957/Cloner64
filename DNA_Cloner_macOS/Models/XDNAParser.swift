@@ -70,12 +70,6 @@ final class XDNAParser {
 
         return parseXPRTData(data, filename: url.deletingPathExtension().lastPathComponent)
     }
-    
-    /// Check if binary data looks like a protein sequence (type byte = 4)
-    func isProteinFormat(_ data: Data) -> Bool {
-        guard data.count >= 112 else { return false }
-        return data[1] == 4  // type byte: 4 = protein
-    }
 
     func writeXDNA(_ sequence: DNASequence, to url: URL) -> Bool {
         let data = generateXDNA(sequence)

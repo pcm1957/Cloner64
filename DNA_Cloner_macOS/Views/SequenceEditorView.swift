@@ -871,15 +871,7 @@ struct SequenceEditorView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(selected, forType: .string)
     }
-    
-    private func copyAsFasta() {
-        guard selectionStart < selectionEnd else { return }
-        let selected = subsequence(from: selectionStart, to: selectionEnd)
-        let fasta = ">\(sequence.name) [\(selectionStart + 1)..\(selectionEnd)]\n\(selected)"
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(fasta, forType: .string)
-    }
-    
+
     private func cutSelection() {
         guard !isLocked, selectionStart < selectionEnd else { return }
         copySelection()
@@ -1032,15 +1024,7 @@ struct SequenceEditorView: View {
             }
         }
     }
-    
-    private func copyTranslation() {
-        guard selectionStart < selectionEnd else { return }
-        let selected = subsequence(from: selectionStart, to: selectionEnd).uppercased()
-        let protein = DNASequence(name: "tmp", sequence: selected).translate(frame: 1)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(protein, forType: .string)
-    }
-    
+
     private func uppercaseSelection() {
         guard !isLocked, selectionStart < selectionEnd else { return }
         sequence.registerUndo()
@@ -1075,18 +1059,7 @@ struct SequenceEditorView: View {
         featureCount = sequence.features.count
     }
     
-    private func antiparallelSelection() {
-        guard !isLocked, selectionStart < selectionEnd else { return }
-        sequence.registerUndo()
-        let before = subsequence(from: 0, to: selectionStart)
-        let selected = subsequence(from: selectionStart, to: selectionEnd)
-        let antiparallel = DNASequence.reverseComplementString(selected)
-        let after = subsequence(from: selectionEnd, to: sequence.length)
-        sequence.sequence = before + antiparallel + after
-        editableSequence = sequence.sequence
-    }
 }
-
 
 // MARK: - Sequence Text View (with feature coloring + context menu)
 /// A coloured highlight range for search results, ORFs, or restriction sites
@@ -1631,13 +1604,7 @@ struct SequenceTextView: View {
         }
         return .clear
     }
-    
-    private func isPositionInFeature(_ position: Int, feature: Feature) -> Bool {
-        let lo = min(feature.start, feature.end)
-        let hi = max(feature.start, feature.end)
-        return position >= lo && position < hi
-    }
-    
+
     private func positionFromPoint(_ point: CGPoint) -> Int? {
         let charWidth = cachedCharWidth > 0 ? cachedCharWidth : {
             let f = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -1740,7 +1707,6 @@ struct SequenceTextView: View {
             }
     }
 }
-
 
 // MARK: - Mouse Tracking Overlay (reliable macOS mouse events)
 /// NSViewRepresentable that captures mouse events and reports positions.
@@ -1957,7 +1923,6 @@ class MouseTrackingNSView: NSView {
     }
 }
 
-
 // MARK: - Selection Info Panel (Serial Cloner style - manual page 13)
 struct SelectionInfoView: View {
     @ObservedObject var sequence: DNASequence
@@ -2118,19 +2083,7 @@ struct SelectionInfoView: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
     }
-    
-    private func saveFastaProtein() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "\(sequence.name)_protein.fasta"
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                let fasta = ">\(sequence.name) translated protein [\(selectionStart+1)..\(selectionEnd)]\n\(displayProtein)"
-                try? fasta.write(to: url, atomically: true, encoding: .utf8)
-            }
-        }
-    }
-    
+
     private func openAsProteinWindow() {
         let proteinStr = displayProtein.replacingOccurrences(of: "*", with: "")
         guard !proteinStr.isEmpty else { return }
@@ -2148,35 +2101,9 @@ struct SelectionInfoView: View {
         ProteinWindowOpener.shared.openProteinWindow(protein.id)
     }
     
-    private static let complementMap: [Character: Character] = [
-        "A": "T", "T": "A", "G": "C", "C": "G",
-        "R": "Y", "Y": "R", "S": "S", "W": "W",
-        "K": "M", "M": "K", "B": "V", "V": "B",
-        "D": "H", "H": "D", "N": "N"
-    ]
-
     private func reverseComplement(_ seq: String) -> String {
-        String(seq.reversed().map { Self.complementMap[$0] ?? $0 })
+        DNASequence.reverseComplementString(seq)
     }
-    
-    private static let codonTable: [String: Character] = [
-        "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
-        "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
-        "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
-        "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
-        "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
-        "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
-        "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
-        "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
-        "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
-        "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
-        "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
-        "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
-        "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
-        "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
-        "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
-        "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G"
-    ]
     
     private func translateDNA(_ dna: String) -> String {
         var protein = ""
@@ -2184,7 +2111,7 @@ struct SelectionInfoView: View {
         var i = 0
         while i + 2 < chars.count {
             let codon = String(chars[i...i+2])
-            protein.append(Self.codonTable[codon] ?? "X")
+            protein.append(GeneticCode.standardCodonTable[codon] ?? "X")
             i += 3
         }
         return protein
@@ -2230,7 +2157,6 @@ struct SelectionInfoView: View {
         return (low + high) / 2.0
     }
 }
-
 
 // MARK: - Find Drawer (Manual section B)
 struct FindDrawerView: View {
@@ -2840,7 +2766,6 @@ struct FindDrawerView: View {
         highlightRanges = ranges
     }
 }
-
 
 // MARK: - Features Tab
 struct FeaturesTabView: View {

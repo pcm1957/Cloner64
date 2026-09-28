@@ -68,8 +68,33 @@ class SequenceManager: ObservableObject {
     // Option to convert imported XDNA sequences to uppercase
     // Default: FALSE to preserve mixed case (exons=uppercase, introns=lowercase)
     @Published var convertXDNAToUppercase: Bool = false
+
+    /// Which kind of document window was most recently in front. Used to grey
+    /// out the Export DNA / Export Protein menus that don't apply. Tool windows
+    /// (maps, digests etc.) leave it unchanged, so it tracks the last document.
+    nonisolated enum FrontDocumentKind: Equatable, Sendable { case none, dna, protein }
+    @Published var frontDocumentKind: FrontDocumentKind = .none
+
+    /// Only assign on change, so the menu bar is not rebuilt needlessly.
+    func setFrontDocumentKind(_ kind: FrontDocumentKind) {
+        if frontDocumentKind != kind { frontDocumentKind = kind }
+    }
+
+    /// Update frontDocumentKind from a document window (no-op for tool windows).
+    func noteFrontDocument(for window: NSWindow) {
+        if DocumentWindowID.dnaID(of: window) != nil {
+            setFrontDocumentKind(.dna)
+        } else if DocumentWindowID.proteinID(of: window) != nil {
+            setFrontDocumentKind(.protein)
+        }
+    }
     
+    /// The app's SequenceManager, for windows created outside SwiftUI's
+    /// environment (the map and cutter windows opened by window managers).
+    static weak var shared: SequenceManager?
+
     init() {
+        SequenceManager.shared = self
         // Listen for fragment creation requests from graphical map
         NotificationCenter.default.addObserver(
             forName: .createSequenceFromFragment,
@@ -123,6 +148,22 @@ class SequenceManager: ObservableObject {
         // evaluation, so it's safe to mutate @Published properties from here
         // — unlike doing the same lookup inside a Picker binding, which
         // produces "Publishing changes from within view updates" warnings.
+        // When the last DNA or protein window closes, grey out both Export menus
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let closing = notification.object as? NSWindow else { return }
+            let isDocument: (NSWindow) -> Bool = {
+                DocumentWindowID.dnaID(of: $0) != nil || DocumentWindowID.proteinID(of: $0) != nil
+            }
+            guard isDocument(closing) else { return }
+            let othersOpen = NSApp.windows.contains { $0 !== closing && $0.isVisible && isDocument($0) }
+            if !othersOpen { self.setFrontDocumentKind(.none) }
+        }
+
         NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeMainNotification,
             object: nil,
@@ -130,6 +171,9 @@ class SequenceManager: ObservableObject {
         ) { [weak self] notification in
             guard let self = self,
                   let window = notification.object as? NSWindow else { return }
+
+            // Record which kind of document is in front
+            self.noteFrontDocument(for: window)
 
             // Exact identity first — set when the window was created, so it is
             // right even when two sequences share a name or one name contains
@@ -150,32 +194,29 @@ class SequenceManager: ObservableObject {
             // Try DNA sequences first (exact match, then longest substring match)
             if let exact = self.sequences.first(where: { $0.name == title }) {
                 self.currentSequence = exact
+                self.setFrontDocumentKind(.dna)
                 return
             }
             let dnaCandidates = self.sequences.filter { !$0.name.isEmpty && title.contains($0.name) }
             if let best = dnaCandidates.max(by: { $0.name.count < $1.name.count }) {
                 self.currentSequence = best
+                self.setFrontDocumentKind(.dna)
                 return
             }
             // Then proteins
             if let exactP = self.proteinSequences.first(where: { $0.name == title }) {
                 self.currentProtein = exactP
+                self.setFrontDocumentKind(.protein)
                 return
             }
             let protCandidates = self.proteinSequences.filter { !$0.name.isEmpty && title.contains($0.name) }
             if let bestP = protCandidates.max(by: { $0.name.count < $1.name.count }) {
                 self.currentProtein = bestP
+                self.setFrontDocumentKind(.protein)
             }
         }
     }
-    
-    func createNewSequence() {
-        let newSeq = DNASequence(name: "Untitled Sequence \(sequences.count + 1)")
-        sequences.append(newSeq)
-        currentSequence = newSeq
-        SequenceWindowOpener.shared.openSequenceWindow(newSeq.id)
-    }
-    
+
     func pasteAsNewSequence() {
         guard let clipboardString = NSPasteboard.general.string(forType: .string),
               !clipboardString.isEmpty else { return }
@@ -191,18 +232,7 @@ class SequenceManager: ObservableObject {
         currentSequence = newSeq
         SequenceWindowOpener.shared.openSequenceWindow(newSeq.id)
     }
-    
-    func selectSequence(_ sequence: DNASequence) {
-        currentSequence = sequence
-    }
-    
-    func deleteSequence(_ sequence: DNASequence) {
-        sequences.removeAll { $0.id == sequence.id }
-        if currentSequence?.id == sequence.id {
-            currentSequence = sequences.first
-        }
-    }
-    
+
     // MARK: - File Operations
     
     func openSequence() {
@@ -255,6 +285,19 @@ class SequenceManager: ObservableObject {
 
             let ext = url.pathExtension.lowercased()
             let filename = url.deletingPathExtension().lastPathComponent
+
+            // Protein FASTA (.faa) always opens in a protein window.
+            // Plain .fasta/.fa files are checked for protein letters further down.
+            if ext == "faa" {
+                guard let data = try? Data(contentsOf: url) else {
+                    self.showOpenErrorAlert(url: url,
+                        message: "Cloner 64 could not read this protein FASTA file.",
+                        detail: "The file could not be opened.")
+                    return
+                }
+                self.openProteinFASTA(text: String(decoding: data, as: UTF8.self), url: url, filename: filename)
+                return
+            }
 
             let knownTextExtensions = ["fasta", "fa", "gb", "gbk", "genbank", "ape", "txt", "seq", "dna"]
             let shouldTryBinary = (ext == "xdna") || (ext == "xprt") || (ext == "dna") || !knownTextExtensions.contains(ext)
@@ -399,25 +442,26 @@ class SequenceManager: ObservableObject {
                     #if DEBUG
                     print("   Detected as FASTA format")
                     #endif
-                    if let sequence = self.parseFASTA(content) {
-                        sequence.sourceURL = url
+                    if Self.fastaLooksLikeProtein(content) {
+                        // Contains letters that can't occur in DNA — ask the user
                         DispatchQueue.main.async {
-                            self.sequences.append(sequence)
-                            self.currentSequence = sequence
-                            RecentFilesManager.shared.addRecent(url)
-                            SequenceWindowOpener.shared.openSequenceWindow(sequence.id)
-                            sequence.markCleanAfterLoad()
-                            #if DEBUG
-                            print("   ✅ FASTA loaded successfully")
-                            #endif
+                            let alert = NSAlert()
+                            alert.messageText = "This looks like a protein sequence"
+                            alert.informativeText = "\"\(url.lastPathComponent)\" contains letters (such as E, F, I, L, P or Q) that don't occur in DNA. How would you like to open it?"
+                            alert.addButton(withTitle: "Open as Protein")
+                            alert.addButton(withTitle: "Open as DNA")
+                            alert.addButton(withTitle: "Cancel")
+                            switch alert.runModal() {
+                            case .alertFirstButtonReturn:
+                                self.openProteinFASTA(text: content, url: url, filename: filename)
+                            case .alertSecondButtonReturn:
+                                self.openDNAFASTA(content: content, url: url)
+                            default:
+                                break
+                            }
                         }
                     } else {
-                        #if DEBUG
-                        print("   ❌ FASTA parsing failed")
-                        #endif
-                        self.showOpenErrorAlert(url: url,
-                            message: "Cloner 64 could not parse this FASTA file.",
-                            detail: "The file was recognised as FASTA but no sequence could be extracted.")
+                        self.openDNAFASTA(content: content, url: url)
                     }
 
                 } else if ext == "gb" || ext == "gbk" || ext == "genbank" || ext == "ape"
@@ -518,6 +562,157 @@ class SequenceManager: ObservableObject {
         }
     }
     
+    // MARK: - FASTA helpers (DNA or protein)
+
+    /// True when FASTA text contains letters that cannot occur in DNA,
+    /// even allowing for IUPAC ambiguity codes (A C G T U R Y S W K M B D H V N).
+    static func fastaLooksLikeProtein(_ text: String) -> Bool {
+        let proteinOnly: Set<Character> = ["E", "F", "I", "J", "L", "O", "P", "Q", "Z"]
+        for line in text.components(separatedBy: .newlines) {
+            if line.hasPrefix(">") || line.hasPrefix(";") { continue }
+            if line.uppercased().contains(where: { proteinOnly.contains($0) }) { return true }
+        }
+        return false
+    }
+
+    /// Open FASTA text as a DNA sequence window (the original FASTA behaviour).
+    private func openDNAFASTA(content: String, url: URL) {
+        if let sequence = self.parseFASTA(content) {
+            sequence.sourceURL = url
+            DispatchQueue.main.async {
+                self.sequences.append(sequence)
+                self.currentSequence = sequence
+                RecentFilesManager.shared.addRecent(url)
+                SequenceWindowOpener.shared.openSequenceWindow(sequence.id)
+                sequence.markCleanAfterLoad()
+                #if DEBUG
+                print("   ✅ FASTA loaded successfully")
+                #endif
+            }
+        } else {
+            #if DEBUG
+            print("   ❌ FASTA parsing failed")
+            #endif
+            self.showOpenErrorAlert(url: url,
+                message: "Cloner 64 could not parse this FASTA file.",
+                detail: "The file was recognised as FASTA but no sequence could be extracted.")
+        }
+    }
+
+    /// Open the first record of FASTA text as a protein window.
+    private func openProteinFASTA(text: String, url: URL, filename: String) {
+        var header = ""
+        var seqChars = ""
+        var seenHeader = false
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix(">") {
+                if seenHeader { break }          // stop at the second record
+                seenHeader = true
+                header = String(line.dropFirst()).trimmingCharacters(in: .whitespaces)
+            } else if !line.isEmpty && !line.hasPrefix(";") {
+                seqChars += line.uppercased().filter { $0.isLetter || $0 == "*" }
+            }
+        }
+        guard !seqChars.isEmpty else {
+            showOpenErrorAlert(url: url,
+                message: "Cloner 64 could not parse this protein FASTA file.",
+                detail: "No amino acid sequence was found in the file.")
+            return
+        }
+        // Header: first word is the name, the rest is the description
+        let parts = header.split(separator: " ", maxSplits: 1).map(String.init)
+        let name = parts.first ?? filename
+        let protein = ProteinSequence(name: name.isEmpty ? filename : name, sequence: seqChars)
+        if parts.count > 1 { protein.description = parts[1] }
+        protein.sourceURL = url
+        DispatchQueue.main.async {
+            self.proteinSequences.append(protein)
+            self.currentProtein = protein
+            self.currentSequence = nil
+            RecentFilesManager.shared.addRecent(url)
+            ProteinWindowOpener.shared.openProteinWindow(protein.id)
+            protein.markCleanAfterLoad()
+        }
+    }
+
+    /// Home button (Graphical Map, Sequence Map, Virtual Cutter): bring the
+    /// sequence's own window to the front. If that window has been closed —
+    /// which also removes the sequence from `sequences` — put the sequence
+    /// back and open a fresh window for it. The map still holds the same
+    /// sequence object, so the reopened window shows exactly what the map shows.
+    @MainActor
+    func showSequenceWindow(for sequence: DNASequence) {
+        let isThisSequence: (NSWindow) -> Bool = { window in
+            guard window.isVisible else { return false }
+            if let id = DocumentWindowID.dnaID(of: window) { return id == sequence.id }
+            // Unlabelled window: fall back to the title, but never the window
+            // the Home button was clicked in, and never a protein window.
+            guard window != NSApp.keyWindow,
+                  DocumentWindowID.proteinID(of: window) == nil else { return false }
+            let name = sequence.name.isEmpty ? "Untitled Sequence" : sequence.name
+            return window.title == name
+        }
+        if let window = NSApp.windows.first(where: isThisSequence) {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        // Window was closed: re-register the sequence and reopen it
+        if !sequences.contains(where: { $0.id == sequence.id }) {
+            sequences.append(sequence)
+        }
+        currentSequence = sequence
+        SequenceWindowOpener.shared.clearAdoptedID(sequence.id)
+        SequenceWindowOpener.shared.openSequenceWindow(sequence.id)
+        NSApp.activate(ignoringOtherApps: true)
+
+        // Backstop: SwiftUI can only open a sequence window from a live
+        // SwiftUI window. If none managed it, build the window directly.
+        // Waits a full second and also matches by title: a window SwiftUI
+        // has just opened may not carry its identity label yet, and treating
+        // it as missing produced a duplicate window.
+        let expectedTitle = sequence.name.isEmpty ? "Untitled Sequence" : sequence.name
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
+            let shown = NSApp.windows.contains { window in
+                guard window.isVisible else { return false }
+                if DocumentWindowID.dnaID(of: window) == sequence.id { return true }
+                return DocumentWindowID.proteinID(of: window) == nil
+                    && window.title == expectedTitle
+            }
+            guard !shown, self.sequences.contains(where: { $0.id == sequence.id }) else { return }
+            self.openHostedSequenceWindow(for: sequence)
+        }
+    }
+
+    /// Sequence windows opened directly (see showSequenceWindow's backstop),
+    /// kept here so they are not released while open.
+    private var hostedSequenceWindows: [NSWindow] = []
+
+    @MainActor
+    private func openHostedSequenceWindow(for sequence: DNASequence) {
+        let view = SequenceWindowView(sequenceID: sequence.id)
+            .environmentObject(self)
+            .modifier(SequenceWindowOpenDispatcher())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 750, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = NSHostingController(rootView: view)
+        window.title = sequence.name.isEmpty ? "Untitled Sequence" : sequence.name
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        hostedSequenceWindows.append(window)
+        observeWindowClose(window) { [weak self, weak window] in
+            self?.hostedSequenceWindows.removeAll { $0 === window }
+        }
+    }
+
     /// Open a sequence from a known URL (used by Open Recent and AppDelegate)
     func openSequenceFromURL(_ url: URL) {
         // Check if this file is already loaded (avoid duplicate windows).
@@ -578,6 +773,10 @@ class SequenceManager: ObservableObject {
             if isProtein {
                 ProteinWindowOpener.shared.openProteinWindow(fallbackID)
             } else {
+                // The sequence may be marked as "adopted into the Untitled
+                // window" when that never actually happened — clear it, or the
+                // opener skips the request and nothing appears.
+                SequenceWindowOpener.shared.clearAdoptedID(fallbackID)
                 SequenceWindowOpener.shared.openSequenceWindow(fallbackID)
             }
         }
@@ -616,22 +815,6 @@ class SequenceManager: ObservableObject {
     }
     
     @MainActor
-    func exportAsXDNA() {
-        guard let sequence = currentSequence else { return }
-        
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(sequence.name).xdna"
-        panel.allowedContentTypes = [UTType(filenameExtension: "xdna") ?? .data]
-        
-        panel.begin { response in
-            if response == .OK, let url = panel.url {
-                let parser = XDNAParser()
-                _ = parser.writeXDNA(sequence, to: url)
-            }
-        }
-    }
-    
-    @MainActor
     func exportAsAPE() {
         guard let sequence = currentSequence else { return }
         
@@ -648,38 +831,6 @@ class SequenceManager: ObservableObject {
     }
     
     // MARK: - Protein File Operations
-    
-    /// Open a protein sequence file (.xprt or protein FASTA)
-    @MainActor
-    func openProteinSequence() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "xprt") ?? .data,
-            UTType(filenameExtension: "fasta") ?? .plainText,
-            UTType(filenameExtension: "fa") ?? .plainText,
-            .data
-        ]
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        
-        if let window = NSApplication.shared.keyWindow {
-            panel.beginSheetModal(for: window) { response in
-                if response == .OK {
-                    for url in panel.urls {
-                        self.loadSequenceFromFile(url)
-                    }
-                }
-            }
-        } else {
-            panel.begin { response in
-                if response == .OK {
-                    for url in panel.urls {
-                        self.loadSequenceFromFile(url)
-                    }
-                }
-            }
-        }
-    }
     
     /// Save a protein sequence back to its source file
     @MainActor
@@ -709,6 +860,7 @@ class SequenceManager: ObservableObject {
         panel.nameFieldStringValue = "\(protein.name).\(ext)"
         panel.allowedContentTypes = [
             UTType(filenameExtension: "xprt") ?? .data,
+            UTType(filenameExtension: "faa") ?? .plainText,
             UTType(filenameExtension: "fasta") ?? .plainText
         ]
         
@@ -735,8 +887,10 @@ class SequenceManager: ObservableObject {
     @MainActor
     func exportProteinAsFASTA(_ protein: ProteinSequence) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "\(protein.name).fasta"
-        panel.allowedContentTypes = [UTType(filenameExtension: "fasta") ?? .plainText]
+        // Protein FASTA uses .faa (the standard protein FASTA extension) so it
+        // isn't claimed by Cloner 64, which opens .fasta files as DNA.
+        panel.nameFieldStringValue = "\(protein.name).faa"
+        panel.allowedContentTypes = [UTType(filenameExtension: "faa") ?? .plainText]
         
         panel.begin { response in
             if response == .OK, let url = panel.url {
@@ -765,7 +919,7 @@ class SequenceManager: ObservableObject {
         let ext = url.pathExtension.lowercased()
         do {
             switch ext {
-            case "fasta", "fa":
+            case "faa", "fasta", "fa":
                 var fasta = ">\(protein.name)\n"
                 let seq = protein.sequence
                 var i = seq.startIndex
@@ -1632,25 +1786,11 @@ class SequenceManager: ObservableObject {
     }
     
     // MARK: - Analysis Functions
-    
-    func findRestrictionSites() {
-        // Trigger UI to show restriction sites
-    }
-    
+
     func findORFs() {
         // Trigger UI to show ORF finder
     }
-    
-    
-    
-    func translateSequence() {
-        guard let sequence = currentSequence else { return }
-        let protein = sequence.translate()
-        #if DEBUG
-        print("Protein: \(protein)")
-        #endif
-    }
-    
+
     /// Translate the current DNA selection into a protein and open it in a protein window
     @MainActor
     func translateSelection() {

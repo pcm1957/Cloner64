@@ -1057,13 +1057,7 @@ struct FeatureCollectionView: View {
     
     /// Simple reverse complement for duplicate checking
     private func reverseComplement(_ seq: String) -> String {
-        let complement: [Character: Character] = [
-            "A": "T", "T": "A", "C": "G", "G": "C",
-            "R": "Y", "Y": "R", "M": "K", "K": "M",
-            "S": "S", "W": "W", "B": "V", "V": "B",
-            "D": "H", "H": "D", "N": "N"
-        ]
-        return String(seq.reversed().map { complement[$0] ?? $0 })
+        DNASequence.reverseComplementString(seq)
     }
     
     // MARK: - Actions

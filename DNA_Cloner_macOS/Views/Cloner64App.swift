@@ -23,7 +23,6 @@ extension Notification.Name {
 @main
 struct Cloner64App: App {
     @StateObject private var sequenceManager = SequenceManager()
-    @StateObject private var appState = AppState()
     @ObservedObject private var helpManager = ContextHelpManager.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
@@ -35,7 +34,6 @@ struct Cloner64App: App {
         WindowGroup {
             SequenceWindowRootView()
                 .environmentObject(sequenceManager)
-                .environmentObject(appState)
                 .modifier(SequenceWindowOpenDispatcher())
                 .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                     handleFileDrop(providers)
@@ -61,7 +59,6 @@ struct Cloner64App: App {
             if let id = sequenceID {
                 SequenceWindowView(sequenceID: id)
                     .environmentObject(sequenceManager)
-                    .environmentObject(appState)
                     .modifier(SequenceWindowOpenDispatcher())
                     .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                         handleFileDrop(providers)
@@ -267,27 +264,32 @@ struct Cloner64App: App {
                 
                 Menu("Export DNA") {
                     Button("as FASTA...") {
+                        guard sequenceManager.frontDocumentKind == .dna else { NSSound.beep(); return }
                         sequenceManager.exportAsFASTA()
                     }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
                     
                     Button("as GenBank...") {
+                        guard sequenceManager.frontDocumentKind == .dna else { NSSound.beep(); return }
                         sequenceManager.exportAsGenBank()
                     }
                     
                     Button("as APE...") {
+                        guard sequenceManager.frontDocumentKind == .dna else { NSSound.beep(); return }
                         sequenceManager.exportAsAPE()
                     }
                 }
                 
                 Menu("Export Protein") {
-                    Button("as FASTA...") {
+                    Button("as FASTA (.faa)...") {
+                        guard sequenceManager.frontDocumentKind == .protein else { NSSound.beep(); return }
                         if let prot = sequenceManager.currentProtein {
                             sequenceManager.exportProteinAsFASTA(prot)
                         }
                     }
                     
                     Button("as XPRT...") {
+                        guard sequenceManager.frontDocumentKind == .protein else { NSSound.beep(); return }
                         if let prot = sequenceManager.currentProtein {
                             sequenceManager.saveProteinAs(prot)
                         }
@@ -690,6 +692,31 @@ class SequenceWindowOpener: ObservableObject {
     /// the set forever, and every later open of the same file was silently
     /// skipped ("already adopted in-place previously") — the file loaded but
     /// no window appeared.
+    /// Safety net for in-place adoption. Occasionally the empty Untitled
+    /// window is told to show the new file but never actually switches, which
+    /// left the file loaded but invisible — and every later Open Recent click
+    /// did nothing because the file was marked as "already showing". Half a
+    /// second on, check that some visible window really shows this sequence;
+    /// if not, drop the adoption marker and open it in a window of its own.
+    func verifyAdoption(of id: UUID) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self else { return }
+            let shown = NSApp.windows.contains {
+                $0.isVisible && DocumentWindowID.dnaID(of: $0) == id
+            }
+            guard !shown else { return }
+            #if DEBUG
+            print("🪟 adoption of \(id) did not take effect — opening a new window")
+            #endif
+            self.clearAdoptedID(id)
+            NotificationCenter.default.post(
+                name: .openSequenceWindowRequest,
+                object: nil,
+                userInfo: ["id": id, "forceNew": true]
+            )
+        }
+    }
+
     func clearAdoptedID(_ id: UUID) {
         adoptedInPlaceIDs.remove(id)
         if lastAdoptedID == id { lastAdoptedID = nil }
@@ -746,6 +773,7 @@ class SequenceWindowOpener: ObservableObject {
                 #if DEBUG
                 print("🪟 backstop skipped — adopted in-place")
                 #endif
+                self.verifyAdoption(of: id)
                 return
             }
             #if DEBUG
@@ -769,13 +797,27 @@ class ProteinWindowOpener: ObservableObject {
 // MARK: - App Delegate
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    var sequenceManager: SequenceManager?
+    var sequenceManager: SequenceManager? {
+        didSet {
+            // Set a moment after launch (from the first window's onAppear), so
+            // subscribe here rather than in applicationDidFinishLaunching.
+            // Re-applies Export DNA / Export Protein greying whenever the front
+            // document switches between DNA and protein — deferred a tick so it
+            // runs after any SwiftUI menu rebuild caused by the same change.
+            guard sequenceManager !== oldValue else { return }
+            exportMenuCancellable = sequenceManager?.$frontDocumentKind
+                .sink { [weak self] _ in
+                    DispatchQueue.main.async { self?.applyExportMenuState() }
+                }
+        }
+    }
     var hasFinishedInitialSetup = false
     private var menuObserver: Any?
     private var menuItemRemovedObserver: Any?
     private var menuTrackingObserver: Any?
     private var keyMonitor: Any?
     private var recentMenuCancellable: AnyCancellable?
+    private var exportMenuCancellable: AnyCancellable?
     /// Coalesces the many item-added/removed notifications SwiftUI emits while
     /// rebuilding the File menu into a single repair pass.
     private var recentMenuRepairScheduled = false
@@ -940,6 +982,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard !self.isTrackingAnyMenu else { return }
             self.installFileMenuDelegate()
             self.refreshNativeRecentFilesMenu()
+            self.applyExportMenuState()
         }
     }
 
@@ -950,8 +993,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // intentional, pre-render update.
         if menu === NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu {
             refreshNativeRecentFilesMenu()
+            applyExportMenuState(in: menu)
         }
         isTrackingAnyMenu = true
+    }
+
+    /// Greys out the Export DNA / Export Protein items that don't match the
+    /// front document window. Done here, natively, because this class replaces
+    /// SwiftUI's own File-menu delegate, so SwiftUI's .disabled() was not
+    /// reliably applied. Only enabled states change — no items are added or
+    /// removed — so it is safe just before the menu is shown.
+    private func applyExportMenuState() {
+        guard let fileMenu = NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu else {
+            return
+        }
+        applyExportMenuState(in: fileMenu)
+    }
+
+    private func applyExportMenuState(in fileMenu: NSMenu) {
+        let kind = sequenceManager?.frontDocumentKind ?? SequenceManager.FrontDocumentKind.none
+        let groups: [(String, SequenceManager.FrontDocumentKind)] = [
+            ("Export DNA", .dna),
+            ("Export Protein", .protein)
+        ]
+        for (title, wanted) in groups {
+            guard let submenu = fileMenu.items.first(where: { $0.title == title })?.submenu else { continue }
+            submenu.autoenablesItems = false
+            for item in submenu.items {
+                item.isEnabled = (kind == wanted)
+            }
+        }
     }
 
     /// NSMenuDelegate — called after any top-level menu closes.

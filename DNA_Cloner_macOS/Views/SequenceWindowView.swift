@@ -19,7 +19,6 @@ import Combine
 /// in-place rather than opening a separate window.
 struct SequenceWindowRootView: View {
     @EnvironmentObject var sequenceManager: SequenceManager
-    @EnvironmentObject var appState: AppState
     @Environment(\.openWindow) private var openWindow
     
     @State private var windowSequenceID: UUID?
@@ -366,6 +365,13 @@ struct WindowCloseGuard: NSViewRepresentable {
         if let window = nsView.window, context.coordinator.attachedWindow !== window {
             context.coordinator.attach(to: window, sequence: sequence)
         }
+        // Keep the window's identity label in step with the sequence it shows.
+        // When the first file opened is adopted into the empty "Untitled"
+        // window, the window kept the placeholder's label, so Open Recent could
+        // not find it again and silently did nothing.
+        if let window = nsView.window, DocumentWindowID.dnaID(of: window) != sequence.id {
+            DocumentWindowID.stamp(window, dnaID: sequence.id)
+        }
     }
     
     func makeCoordinator() -> Coordinator {
@@ -384,6 +390,13 @@ struct WindowCloseGuard: NSViewRepresentable {
             // it exactly instead of matching its title against sequence names.
             // See DocumentWindowID in SequenceManager.swift.
             DocumentWindowID.stamp(window, dnaID: sequence.id)
+            // The window may already be in front before it is stamped, so tell the
+            // manager now (async: this can run during a SwiftUI view update)
+            if window.isMainWindow || window.isKeyWindow {
+                DispatchQueue.main.async { [weak self] in
+                    self?.sequenceManager?.noteFrontDocument(for: window)
+                }
+            }
             // Store original delegate so we can forward other calls
             if window.delegate !== self {
                 self.originalDelegate = window.delegate

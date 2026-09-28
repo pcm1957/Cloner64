@@ -21,17 +21,7 @@ struct SequenceMapTextView: NSViewRepresentable {
     
     /// Compute reverse complement of a DNA string
     static func reverseComplement(_ seq: String) -> String {
-        let complementMap: [Character: Character] = [
-            "A": "T", "T": "A", "G": "C", "C": "G",
-            "a": "t", "t": "a", "g": "c", "c": "g",
-            "R": "Y", "Y": "R", "S": "S", "W": "W",
-            "K": "M", "M": "K", "B": "V", "V": "B",
-            "D": "H", "H": "D", "N": "N",
-            "r": "y", "y": "r", "s": "s", "w": "w",
-            "k": "m", "m": "k", "b": "v", "v": "b",
-            "d": "h", "h": "d", "n": "n"
-        ]
-        return String(seq.reversed().map { complementMap[$0] ?? $0 })
+        DNASequence.reverseComplementString(seq)
     }
     
     func makeNSView(context: Context) -> NSScrollView {
@@ -178,7 +168,6 @@ struct SequenceMapTextView: NSViewRepresentable {
         }
     }
 }
-
 
 // MARK: - Main Sequence Map View
 
@@ -379,9 +368,17 @@ struct SequenceMapView: View {
                             
                             HStack(spacing: 0) {
                                 HStack(spacing: 4) {
-                                    Circle()
-                                        .fill(feature.color.color)
-                                        .frame(width: 8, height: 8)
+                                    // Click the colour well to recolour this feature
+                                    // (saved with the sequence; the map updates live)
+                                    ColorPicker("", selection: Binding(
+                                        get: { feature.color.color },
+                                        set: { sequence.setFeatureColor(feature.id, to: CodableColor($0)) }
+                                    ), supportsOpacity: false)
+                                    .labelsHidden()
+                                    .controlSize(.mini)
+                                    .frame(width: 22)
+                                    .help("Change this feature's colour")
+                                    .contextHelp("smap.featureColour")
                                     Text(feature.name)
                                         .lineLimit(1)
                                 }
@@ -439,10 +436,14 @@ struct SequenceMapView: View {
                     .contextHelp("smap.showFeatures")
                 
                 Button(action: { withAnimation { showFeatureList.toggle() } }) {
-                    Image(systemName: showFeatureList ? "list.bullet.circle.fill" : "list.bullet.circle")
-                        .foregroundColor(.accentColor)
+                    Label(showFeatureList ? "Hide" : "List",
+                          systemImage: showFeatureList ? "chevron.up" : "list.bullet.rectangle")
+                        .font(.system(size: 12))
+                        .fixedSize()
                 }
-                .buttonStyle(.plain).help("Toggle feature list")
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help(showFeatureList ? "Hide the list of features" : "Show the list of features, with colours you can change")
                 .contextHelp("smap.featureList")
             }
             
@@ -457,7 +458,6 @@ struct SequenceMapView: View {
                     .frame(width: 150).font(.system(size: 12))
                     .onSubmit { settings.searchQuery = searchText }
             }
-            
 
         }
     }
@@ -897,19 +897,14 @@ struct SequenceMapView: View {
     
     // #3: Home — open/reopen the sequence editor window and bring it to front
     private func goHome() {
-        // First try to find and activate an existing window
-        for window in NSApp.windows where window != NSApp.keyWindow {
-            let title = window.title
-            if title == sequence.name
-                || (sequence.name.isEmpty && (title == "Untitled Sequence" || title == "Untitled"))
-            {
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
-                return
-            }
+        // Brings the sequence window forward, or reopens it if it was closed
+        // (the closed window's sequence is put back so the reopened window
+        // can find it — previously it showed "Sequence not found").
+        if let manager = SequenceManager.shared {
+            manager.showSequenceWindow(for: sequence)
+        } else {
+            openWindow(id: "sequence", value: sequenceID)
         }
-        // Window was closed — use SwiftUI's openWindow to create a new one
-        openWindow(id: "sequence", value: sequenceID)
     }
     
     // #4: Print uses printCharacterSize
@@ -954,7 +949,6 @@ struct SequenceMapView: View {
         }
     }
 }
-
 
 // MARK: - Particular Sites Sheet  (#9)
 
@@ -1037,7 +1031,6 @@ struct ParticularSitesSheet: View {
     }
 }
 
-
 // MARK: - Window Manager (replaces placeholder)
 
 class SequenceMapWindowManager {
@@ -1053,7 +1046,10 @@ class SequenceMapWindowManager {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
+        // The dispatcher lets this window open sequence windows (e.g. its Home
+        // button) even when no sequence window is left open to do it.
         let mapView = SequenceMapView(sequence: sequence, sequenceID: sequence.id)
+            .modifier(SequenceWindowOpenDispatcher())
         let hostingController = NSHostingController(rootView: mapView)
         
         let window = NSWindow(
@@ -1081,8 +1077,4 @@ class SequenceMapWindowManager {
         }
     }
     
-    func closeAllWindows() {
-        windows.forEach { $0.close() }
-        windows.removeAll()
-    }
 }

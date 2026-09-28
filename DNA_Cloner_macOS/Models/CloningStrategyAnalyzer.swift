@@ -14,7 +14,6 @@ struct JunctionFrame {
     let insertOffset: Int
 }
 
-
 // MARK: - Insert Region
 
 struct InsertRegion {
@@ -55,7 +54,6 @@ struct InsertRegion {
         return src
     }
 }
-
 
 // MARK: - Cloning Path
 
@@ -110,7 +108,6 @@ enum CloningPath {
     }
 }
 
-
 /// How a sticky end is converted to a blunt end before a blunt ligation.
 enum BluntingMethod: String {
     /// Klenow fragment + dNTPs: fills in a 5' overhang. KEEPS the overhang bases.
@@ -129,7 +126,6 @@ enum BluntingMethod: String {
     }
 }
 
-
 // MARK: - Partial Digest Side
 
 enum PartialDigestSide: String {
@@ -147,7 +143,6 @@ enum PartialDigestSide: String {
     
     var badgeColor: String { "orange" }
 }
-
 
 // MARK: - Frame Analysis
 
@@ -192,7 +187,6 @@ struct FrameAnalysis {
         }
     }
 }
-
 
 // MARK: - Cloning Strategy
 
@@ -253,7 +247,6 @@ struct CloningStrategy: Identifiable {
     var effectiveInsertEnzyme3: RestrictionEnzyme { insertEnzyme3 ?? (enzyme3 ?? enzyme5) }
 }
 
-
 // MARK: - Analyzer
 
 class CloningStrategyAnalyzer {
@@ -268,8 +261,7 @@ class CloningStrategyAnalyzer {
     /// of each run. When no strategies come back, the UI can display this to
     /// show the user exactly which filter stage dropped all candidates.
     var lastDiagnostic: [String] = []
-    
-    
+
     // =========================================================================
     // MARK: Analyze strategies
     // =========================================================================
@@ -435,8 +427,6 @@ class CloningStrategyAnalyzer {
 
             var fivePrimeFlank: Bool { fivePrimeFlankPos != nil }
             var threePrimeFlank: Bool { threePrimeFlankPos != nil }
-            var fivePrimeTruncFlank: Bool { fivePrimeTruncFlankPos != nil }
-            var threePrimeTruncFlank: Bool { threePrimeTruncFlankPos != nil }
         }
         
         var insertClassification: [String: InsertSiteClassification] = [:]
@@ -1526,8 +1516,7 @@ class CloningStrategyAnalyzer {
                 }
             }
         }
-        
-        
+
         // =====================================================================
         // --- Partial digest strategies: VECTOR (enzyme has exactly 2 sites) ---
         // =====================================================================
@@ -1734,8 +1723,7 @@ class CloningStrategyAnalyzer {
                 ))
             }
         }
-        
-        
+
         // =====================================================================
         // --- Partial digest strategies: INSERT (enzyme has flanking + internal) ---
         // =====================================================================
@@ -1975,8 +1963,7 @@ class CloningStrategyAnalyzer {
         
         return strategies.sorted { $0.score > $1.score }
     }
-    
-    
+
     // =========================================================================
     // MARK: Build construct
     // =========================================================================
@@ -2119,8 +2106,7 @@ class CloningStrategyAnalyzer {
         
         return construct
     }
-    
-    
+
     // =========================================================================
     // MARK: Feature remapping
     // =========================================================================
@@ -2163,8 +2149,7 @@ class CloningStrategyAnalyzer {
         }
         return result
     }
-    
-    
+
     // =========================================================================
     // MARK: Helpers
     // =========================================================================
@@ -2209,7 +2194,7 @@ class CloningStrategyAnalyzer {
     /// between the blunted insert boundary and the fusion ORF's ATG.
     /// `frame` is the reading-frame offset at `from` (bases to skip to reach the
     /// first codon boundary). For a blunt junction this is always 0.
-    static func hasInFrameStopCodon(in sequence: String, from: Int, to: Int, frame: Int) -> Bool {
+    nonisolated static func hasInFrameStopCodon(in sequence: String, from: Int, to: Int, frame: Int) -> Bool {
         guard to > from, from >= 0, to <= sequence.count else { return false }
         let start = from + frame
         guard start >= 0, start + 3 <= to else { return false }
@@ -2393,13 +2378,7 @@ class CloningStrategyAnalyzer {
         }
         return -penalty
     }
-    
-    func methylationWarnings(for enzyme: RestrictionEnzyme) -> [String] {
-        let sens = enzyme.methylationSensitivity
-        guard !sens.isEmpty else { return [] }
-        return ["\(enzyme.name): \(sens)"]
-    }
-    
+
     /// Check whether a specific cut site in the actual sequence is affected by
     /// active methylation settings. Returns warnings only when the methylation
     /// motif actually overlaps the recognition site at that position.
@@ -2477,8 +2456,7 @@ class CloningStrategyAnalyzer {
 
         return warnings
     }
-    
-    
+
     // =========================================================================
     // MARK: Protocol export
     // =========================================================================

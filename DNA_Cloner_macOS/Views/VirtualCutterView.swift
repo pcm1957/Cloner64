@@ -652,7 +652,6 @@ struct VirtualCutterView: View {
         let markerLabelSpace: CGFloat = 80
         let leftOffset = markerLabelSpace + (width - markerLabelSpace - totalLanesWidth) / 2
         
-        let allFragments = selectedMarker.fragments + lanes.flatMap { $0.fragments }
         // Band positions come from GelModel, which is driven by the agarose
         // concentration rather than by the range of fragments present. The gel
         // no longer rescales itself to fit whatever was loaded — a 5 kb band
@@ -1409,17 +1408,10 @@ struct VirtualCutterView: View {
     // MARK: - Home
     
     private func goHome() {
+        // Brings each sequence window forward, or reopens it if it was closed
         for seq in selectedSequences {
-            for window in NSApp.windows where window != NSApp.keyWindow {
-                let title = window.title
-                if title == seq.name
-                    || (seq.name.isEmpty && (title == "Untitled Sequence" || title == "Untitled"))
-                {
-                    window.makeKeyAndOrderFront(nil)
-                }
-            }
+            sequenceManager.showSequenceWindow(for: seq)
         }
-        NSApp.activate(ignoringOtherApps: true)
     }
     
     // MARK: - Save / Print

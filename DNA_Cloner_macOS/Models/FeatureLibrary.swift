@@ -181,8 +181,6 @@ class FeatureLibraryManager: ObservableObject {
         UserDefaults.standard.set(currentSchemaVersion, forKey: schemaVersionKey)
     }
 
-
-    
     // MARK: - Collection Management
     
     func addCollection(name: String) {
@@ -196,21 +194,7 @@ class FeatureLibraryManager: ObservableObject {
         collections.remove(at: index)
         saveCollections()
     }
-    
-    func duplicateCollection(at index: Int) {
-        guard index >= 0 && index < collections.count else { return }
-        var copy = collections[index]
-        copy.id = UUID()
-        copy.name = "\(copy.name) Copy"
-        copy.items = copy.items.map { item in
-            var newItem = item
-            newItem.id = UUID()
-            return newItem
-        }
-        collections.append(copy)
-        saveCollections()
-    }
-    
+
     // MARK: - Item Management
     
     func addItem(to collectionIndex: Int, item: FeatureLibraryItem) {
@@ -902,7 +886,6 @@ class FeatureLibraryManager: ObservableObject {
                 FeatureLibraryItem(name: "URA3", sequence: "ATGTCGAAAGCTACATATAAGGAACGTGCTGCTACTCATCCTAGTCCTGTTGCTGCCAAGCTATTTAATATCATGCACGAAAAGCAAACAAACTTGTGTGCTTCATTGGATGTTCGTACCACCAAGGAATTACTGGAGTTAGTTGAAGCATTAGGTCCCAAAATTTGTTTACTAAAAACACATGTGGATATCTTGACTGATTTTTCCATGGAGGGCACAGTTAAGCCGCTAAAGGCATTATCCGCCAAGTACAATTTTTTACTCTTCGAAGACAGAAAATTTGCTGACATTGGTAATACAGTCAAATTGCAGTACTCTGCGGGTGTATACAGAATAGCAGAATGGGCAGACATTACGAATGCACACGGTGTGGTGGGCCCAGGTATTGTTAGCGGTTTGAAGCAGGCGGCAGAAGAAGTAACAAAGGAACCTAGAGGCCTTTTGATGTTAGCAGAATTGTCATGCAAGGGCTCCCTATCTACTGGAGAATATACTAAGGGTACTGTTGACATTGCGAAGAGCGACAAAGATTTTGTTATCGGCTTTATTGCTCAAAGAGACATGGGTGGAAGAGATGAAGGTTACGATTGGTTGATTATGACACCCGGTGTGGGTTTAGATGACAAGGGAGACGCATTGGGTCAACAGTATAGAACCGTGGATGATGTGGTCTCTACAGGATCTGACATTATTATTGTTGGAAGAGGACTATTTGCAAAGGGAAGGGATGCTAAGGTAGAGGGTGAACGTTACAGAAAAGCAGGCTGGGAAGCATATTTGAGAAGATGCGGCCAGCAAAACTAA", isPeptide: false, comments: "Orotidine-5-phosphate decarboxylase; uracil biosynthesis. S. cerevisiae auxotrophic marker. From pRS316 (U03442). 267aa.", color: CodableColor(red: 0.200, green: 0.400, blue: 0.800), showArrow: true, featureType: .cds, scanEnabled: true, senseStrandOnly: false),
                 FeatureLibraryItem(name: "ZeoR", sequence: "ATGGCCAAGTTGACCAGTGCCGTTCCGGTGCTCACCGCGCGCGACGTCGCCGGAGCGGTCGAGTTCTGGACCGACCGGCTCGGGTTCTCCCGGGACTTCGTGGAGGACGACTTCGCCGGTGTGGTCCGGGACGACGTGACCCTGTTCATCAGCGCGGTCCAGGACCAGGTGGTGCCGGACAACACCCTGGCCTGGGTGTGGGTGCGCGGCCTGGACGAGCTGTACGCCGAGTGGTCGGAGGTCGTGTCCACGAACTTCCGGGACGCCTCCGGGCCGGCCATGACCGAGATCGGCGAGCAGCCGTGGGGGCGGGAGTTCGCCCTGCGCGACCCGGCCGGCAACTGCGTGCACTTCGTGGCCGAGGAGCAGGACTGA", isPeptide: false, comments: "Sh ble protein; zeocin/phleomycin resistance in bacteria, yeast, plants and mammals. From S. hindustanus (A31898). 124aa.", color: CodableColor(red: 0.200, green: 0.400, blue: 0.800), showArrow: true, featureType: .cds, scanEnabled: true, senseStrandOnly: false),
             ]),
-
 
             FeatureCollection(name: "Promoters", scanEnabled: true, items: [
                 FeatureLibraryItem(name: "ADH1 promoter", sequence: "GCATGCAACTTCTTTTCTTTTTTTTTCTTTTCTCTCTCCCCCGTTGTTGTCTCACCATATCCGCAATGACAAAAAAATGATGGAAGACACTAAAGGAAAAAATTAACGACAAAGACAGCACCAACAGATGTCGTTGTTCCAGAGCTGATGAGGGGTATCTCACACGAAACTTTTTCCTTCCTTCATTGACCTGCAATTATTAATCTTTTGTTTCCTCGTCATTGTTCTCGTTCCCTTTCTTCCTTGTTTCTTTTTCTGCACAATATTTCAAGCTATACCAAGCATACAA", isPeptide: false, comments: "S. cerevisiae alcohol dehydrogenase 1 promoter; strong constitutive expression in yeast. Widely used in 2µ and CEN plasmids. Yeast.", color: CodableColor(red: 0.000, green: 0.600, blue: 0.200), showArrow: true, featureType: .promoter, scanEnabled: true, senseStrandOnly: false),

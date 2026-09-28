@@ -14,7 +14,6 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
-
 // MARK: - Window Manager
 
 class PrimerDesignWindowManager {
@@ -50,7 +49,6 @@ class PrimerDesignWindowManager {
         self.window = win
     }
 }
-
 
 // MARK: - Data Models
 
@@ -121,7 +119,6 @@ struct StockPrimerMatch: Identifiable {
     let gcPercent: Double
 }
 
-
 enum SDMStrategy: String, CaseIterable {
     case quickChange = "QuikChange"
     case backToBack  = "Back-to-Back (KLD)"
@@ -137,7 +134,6 @@ enum SDMREAction: String, CaseIterable {
     case introduce = "Introduce site"
     case destroy   = "Destroy site"
 }
-
 
 // MARK: - Main View
 
@@ -469,8 +465,7 @@ struct PrimerDesignView: View {
         }
         .padding()
     }
-    
-    
+
     // MARK: - Import / Export Primers (.xdna format)
     
     /// Build a DNASequence for a single primer, with "Primer Core" and
@@ -514,46 +509,60 @@ struct PrimerDesignView: View {
     
     /// Export selected primer pair as two .xdna files (one per primer).
     /// User picks a folder, and we save ForwardPrimer.xdna + ReversePrimer.xdna.
-    private func exportPrimers() {
+    /// Save both primers of the selected pair as two .xdna files in a folder the
+    /// user chooses (named <sequence>_Forward.xdna and <sequence>_Reverse.xdna).
+    /// Asks before replacing files of the same name already in that folder.
+    private func saveBothPrimers() {
         guard let pair = selectedPair else { return }
         
         let panel = NSOpenPanel()
-        panel.title = "Choose Folder for Primer Files"
+        panel.title = "Choose Folder for Both Primer Files"
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
-        panel.prompt = "Export Here"
+        panel.prompt = "Save Here"
         
         guard panel.runModal() == .OK, let folder = panel.url else { return }
         
         let baseName = sequence.name.replacingOccurrences(of: " ", with: "_")
+        let fwdURL = folder.appendingPathComponent("\(baseName)_Forward.xdna")
+        let revURL = folder.appendingPathComponent("\(baseName)_Reverse.xdna")
+        
+        // Don't silently overwrite primers saved earlier
+        let existing = [fwdURL, revURL].filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !existing.isEmpty {
+            let alert = NSAlert()
+            alert.messageText = "Replace existing primer files?"
+            alert.informativeText = existing.map { $0.lastPathComponent }.joined(separator: "\n")
+                + "\n\nalready exist in this folder."
+            alert.addButton(withTitle: "Replace")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        
         let parser = XDNAParser()
         
-        // Build and save forward primer
         let fwdSeq = buildPrimerSequence(
             name: "\(baseName)_Forward",
             annealing: pair.forward.sequence,
             tail: fwdTail
         )
-        let fwdURL = folder.appendingPathComponent("\(baseName)_Forward.xdna")
         if !parser.writeXDNA(fwdSeq, to: fwdURL) {
             errorMessage = "Failed to write forward primer file."
             return
         }
         
-        // Build and save reverse primer
         let revSeq = buildPrimerSequence(
             name: "\(baseName)_Reverse",
             annealing: pair.reverse.sequence,
             tail: revTail
         )
-        let revURL = folder.appendingPathComponent("\(baseName)_Reverse.xdna")
         if !parser.writeXDNA(revSeq, to: revURL) {
             errorMessage = "Failed to write reverse primer file."
             return
         }
         
-        copiedField = "exported"
+        copiedField = "both_saved"
         clearCopiedAfterDelay()
     }
     
@@ -735,8 +744,7 @@ struct PrimerDesignView: View {
         hasRun = false
         errorMessage = nil
     }
-    
-    
+
     // MARK: - Parameters Section
     
     private var parametersSection: some View {
@@ -1132,8 +1140,7 @@ struct PrimerDesignView: View {
         }
         .padding()
     }
-    
-    
+
     // MARK: - Tail Configuration Section
     
     private var tailSection: some View {
@@ -1316,8 +1323,7 @@ struct PrimerDesignView: View {
             }
         }
     }
-    
-    
+
     // MARK: - Primer Stock Section
     
     private var primerStockSection: some View {
@@ -1718,8 +1724,7 @@ struct PrimerDesignView: View {
         }
         return nil
     }
-    
-    
+
     // MARK: - Feature Overlay Picker
     
     private var featureOverlaySection: some View {
@@ -1835,7 +1840,6 @@ struct PrimerDesignView: View {
         if selectedORFIDs.contains(id) { selectedORFIDs.remove(id) }
         else { selectedORFIDs.insert(id) }
     }
-
 
     // MARK: - Site-Directed Mutagenesis Section
 
@@ -2585,8 +2589,7 @@ struct PrimerDesignView: View {
             }
         }
     }
-    
-    
+
     // MARK: - Results Table
     
     private var resultsSection: some View {
@@ -2746,8 +2749,7 @@ struct PrimerDesignView: View {
             }
         }
     }
-    
-    
+
     // MARK: - Detail / Copy Section
     
     private var detailSection: some View {
@@ -2831,6 +2833,15 @@ struct PrimerDesignView: View {
                         .contextHelp("primer.copyBoth")
                         if copiedField == "both" {
                             Text("Copied!").font(.system(size: 12)).foregroundColor(.green)
+                        }
+                        
+                        Button("Save Both…") {
+                            saveBothPrimers()
+                        }
+                        .buttonStyle(.bordered)
+                        .contextHelp("primer.saveBoth")
+                        if copiedField == "both_saved" {
+                            Text("Saved!").font(.system(size: 12)).foregroundColor(.green)
                         }
                         
                         Button("Run PCR with These Primers…") {
@@ -3003,8 +3014,7 @@ struct PrimerDesignView: View {
             }
         }
     }
-    
-    
+
     // MARK: - Primer Design Algorithm
     
     private func runDesign() {
@@ -3327,9 +3337,7 @@ struct PrimerDesignView: View {
                     let revTailStart0 = Self.wrapIdx(site - 1, n: seqLen)
                     let revTailSense  = Self.extractStatic(from: seq, start0: revTailStart0,
                                                            length: overlapLen, circular: true)
-                    computedRevTail   = String(revTailSense.reversed().map {
-                        Self.complementMap[$0] ?? $0
-                    })
+                    computedRevTail   = DNASequence.reverseComplementString(revTailSense)
                 }
                 // ─────────────────────────────────────────────────────────────
 
@@ -3774,8 +3782,7 @@ struct PrimerDesignView: View {
         if gc >= 40 && gc <= 60 { return 0 }
         return abs(gc - 50.0) * 0.3
     }
-    
-    
+
     // MARK: - Target Feature Selection
     
     private func applyTargetSelection(_ index: Int) {
@@ -3795,8 +3802,7 @@ struct PrimerDesignView: View {
         }
         // -1 = manual, do nothing
     }
-    
-    
+
     // MARK: - Circular Sequence Helpers
     
     /// Static wrap for background thread use
@@ -3877,8 +3883,7 @@ struct PrimerDesignView: View {
         }
         return nil
     }
-    
-    
+
     // MARK: - Primer-Dimer Analysis
     
     private func selfDimerScore(_ primer: String) -> Int {
@@ -3952,8 +3957,7 @@ struct PrimerDesignView: View {
         default: return false
         }
     }
-    
-    
+
     // MARK: - Tm Calculation (Serial Cloner 3-tier formula)
     
     /// Delegates to MeltingTemperature (DNASequence.swift), the single
@@ -3963,28 +3967,8 @@ struct PrimerDesignView: View {
     func calculateTm(_ primer: String, naM: Double) -> Double {
         MeltingTemperature.celsius(for: primer, sodiumMolar: naM)
     }
-    
-    
-    // MARK: - Codon utilities (for SDM amino acid mode)
 
-    private static let codonTable: [String: Character] = [
-        "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
-        "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
-        "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
-        "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
-        "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
-        "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
-        "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
-        "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
-        "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
-        "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
-        "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
-        "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
-        "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
-        "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
-        "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
-        "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G"
-    ]
+    // MARK: - Codon utilities (for SDM amino acid mode)
 
     // Reverse lookup: amino acid → preferred codons (E. coli / general preference)
     private static let preferredCodons: [Character: [String]] = [
@@ -4003,17 +3987,12 @@ struct PrimerDesignView: View {
 
     /// Translate a DNA codon (3 bases) to single-letter amino acid.
     private func translateCodon(_ codon: String) -> Character {
-        Self.codonTable[codon.uppercased()] ?? "X"
+        GeneticCode.standardCodonTable[codon.uppercased()] ?? "X"
     }
 
     /// Return the first preferred codon for a given amino acid letter.
     private func preferredCodon(for aa: Character) -> String {
         Self.preferredCodons[aa]?.first ?? "NNN"
-    }
-
-    /// Find all codons encoding a given amino acid.
-    private func allCodons(for aa: Character) -> [String] {
-        Self.preferredCodons[aa] ?? []
     }
 
     // MARK: - Helpers
@@ -4027,14 +4006,8 @@ struct PrimerDesignView: View {
         return Double(gc) / Double(seq.count) * 100.0
     }
     
-    private static let complementMap: [Character: Character] = [
-        "A": "T", "T": "A", "G": "C", "C": "G",
-        "N": "N", "R": "Y", "Y": "R", "S": "S",
-        "W": "W", "K": "M", "M": "K"
-    ]
-
     private func reverseComplement(_ seq: String) -> String {
-        String(seq.uppercased().reversed().map { Self.complementMap[$0] ?? $0 })
+        DNASequence.reverseComplementString(seq.uppercased())
     }
     
     private func gcColor(_ gc: Double) -> Color {
@@ -4061,7 +4034,6 @@ struct PrimerDesignView: View {
         }
     }
 }
-
 
 // MARK: - Primer Arrow Shape
 

@@ -1230,15 +1230,8 @@ struct PCRSimulationView: View {
     
     // MARK: - Helpers
     
-    private static let complementMap: [Character: Character] = [
-        "A": "T", "T": "A", "G": "C", "C": "G",
-        "N": "N", "R": "Y", "Y": "R", "S": "S",
-        "W": "W", "K": "M", "M": "K", "B": "V",
-        "V": "B", "D": "H", "H": "D"
-    ]
-
     private func reverseComplement(_ seq: String) -> String {
-        String(seq.uppercased().reversed().map { Self.complementMap[$0] ?? $0 })
+        DNASequence.reverseComplementString(seq.uppercased())
     }
     
     private func gcPercent(_ seq: String) -> Double {

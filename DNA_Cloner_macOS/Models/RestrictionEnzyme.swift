@@ -60,12 +60,6 @@ struct RestrictionEnzyme: Identifiable, Codable {
             || cutPosition5Prime < 0 || cutPosition3Prime < 0
     }
 
-    /// True when the recognition site reads the same on both strands, so a
-    /// forward-strand search already finds every occurrence.
-    var isPalindromic: Bool {
-        recognitionSite == RestrictionEnzyme.iupacReverseComplement(recognitionSite)
-    }
-
     /// The fixed single-stranded overhang produced by this enzyme, read 5'→3'
     /// on the top strand, for enzymes that cut WITHIN their recognition site.
     ///

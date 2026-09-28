@@ -553,26 +553,8 @@ struct PredictiveCloningView: View {
     /// `frame` is the reading frame offset at `from` (0, 1, or 2 bases to skip to
     /// reach the first complete codon boundary).
     func hasInFrameStopCodon(in sequence: String, from: Int, to: Int, frame: Int) -> Bool {
-        guard to > from, from >= 0, to <= sequence.count else { return false }
-        let start = from + frame  // first codon-aligned position
-        guard start >= 0, start + 3 <= to else { return false }
-        // Scan only the [start, to) window. The previous implementation
-        // re-uppercased the ENTIRE insert on every call and used
-        // seq.index(startIndex, offsetBy: i) inside the loop, which is O(n)
-        // per codon -> O(n²) overall and costly when `to` is deep into a long
-        // insert (the 3' junction case). This is called inside the per-strategy
-        // fusion filters, so the old version repeated that work for every
-        // candidate strategy.
-        let stops: Set<String> = ["TAA", "TAG", "TGA"]
-        let lo = sequence.index(sequence.startIndex, offsetBy: start)
-        let hi = sequence.index(sequence.startIndex, offsetBy: to)
-        let window = Array(sequence[lo..<hi].uppercased())
-        var i = 0
-        while i + 3 <= window.count {
-            if stops.contains(String(window[i ..< i + 3])) { return true }
-            i += 3
-        }
-        return false
+        // Same check as the analyzer's — kept in one place there.
+        CloningStrategyAnalyzer.hasInFrameStopCodon(in: sequence, from: from, to: to, frame: frame)
     }
 
     /// Apply auto-predicted offsets to the junction pickers.
@@ -1483,8 +1465,6 @@ struct PredictiveCloningView: View {
         let mcsKeywords = ["mcs", "multiple cloning site", "polylinker", "cloning site"]
 
         // --- Strategy 1: named feature or .mcs type (synchronous — just iterates features) ---
-        for f in vector.features {
-        }
         if let mcsFeature = vector.features.first(where: { f in
             f.type == .mcs || mcsKeywords.contains(where: { f.name.lowercased().contains($0) })
         }) {

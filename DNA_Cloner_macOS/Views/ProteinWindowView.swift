@@ -80,6 +80,7 @@ struct ProteinWindowView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showFindDrawer)
         .frame(minWidth: 600, minHeight: 400)
+        .navigationTitle(protein.name.isEmpty ? "Untitled Protein" : protein.name)
         .background(ProteinWindowCloseGuard(protein: protein, sequenceManager: sequenceManager))
         .alert("Sequence is Locked", isPresented: $showLockedWarning) {
             Button("OK") {}
@@ -1050,6 +1051,13 @@ struct ProteinWindowCloseGuard: NSViewRepresentable {
             // Record which protein this window shows — see DocumentWindowID in
             // SequenceManager.swift.
             DocumentWindowID.stamp(window, proteinID: protein.id)
+            // The window may already be in front before it is stamped, so tell the
+            // manager now (async: this can run during a SwiftUI view update)
+            if window.isMainWindow || window.isKeyWindow {
+                DispatchQueue.main.async { [weak self] in
+                    self?.sequenceManager?.noteFrontDocument(for: window)
+                }
+            }
             if window.delegate !== self {
                 self.originalDelegate = window.delegate
                 window.delegate = self

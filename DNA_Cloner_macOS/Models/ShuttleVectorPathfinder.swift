@@ -8,7 +8,6 @@ enum InsertOrientation: String {
     case unknown = ""           // can't determine (non-directional or no feature context)
 }
 
-
 // MARK: - Cloning Route
 
 struct CloningRoute: Identifiable {
@@ -52,13 +51,11 @@ struct CloningStep: Identifiable {
     let partialDigest3: Bool    // enzyme3 cuts >1× in the destination vector
     
     var needsPartialDigest: Bool { partialDigest5 || partialDigest3 }
-    var isDoublePartialDigest: Bool { partialDigest5 && partialDigest3 }
     
     var enzymeDescription: String {
         isDirectional ? "\(enzyme5Name) and \(enzyme3Name)" : enzyme5Name
     }
 }
-
 
 // MARK: - Shuttle Vector Pathfinder
 
@@ -168,8 +165,7 @@ class ShuttleVectorPathfinder {
         }
         
         var routes: [CloningRoute] = []
-        
-        
+
         // --- Shuttle routes (source → shuttle → destination) ---
         guard !destMCS.isEmpty else {
             return routes.sorted { $0.score > $1.score }
@@ -253,8 +249,7 @@ class ShuttleVectorPathfinder {
         
         return routes.sorted { $0.score > $1.score }
     }
-    
-    
+
     // =========================================================================
     // MARK: Find steps using pre-computed flanking sets
     // =========================================================================
@@ -306,8 +301,7 @@ class ShuttleVectorPathfinder {
         
         return steps
     }
-    
-    
+
     // =========================================================================
     // MARK: Build steps from a set of available enzyme names
     // =========================================================================
@@ -348,8 +342,7 @@ class ShuttleVectorPathfinder {
         
         return steps
     }
-    
-    
+
     // =========================================================================
     // MARK: Scoring
     // =========================================================================
@@ -369,8 +362,7 @@ class ShuttleVectorPathfinder {
         }
         return score
     }
-    
-    
+
     // =========================================================================
     // MARK: Orientation determination
     // =========================================================================
@@ -453,8 +445,7 @@ class ShuttleVectorPathfinder {
         }
         return nil
     }
-    
-    
+
     // =========================================================================
     // MARK: Helpers
     // =========================================================================

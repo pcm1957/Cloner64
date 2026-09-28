@@ -249,9 +249,17 @@ final class ContextHelpManager: ObservableObject {
 
         // --- Graphical Map ---
 
+        "gmap.featureColour": (
+            "Feature Colour",
+            "Click the colour well to choose a new colour for the selected feature. The map updates as you pick, and the colour is saved with the sequence (it also changes in the sequence window and Sequence Map). Edit \u{2192} Undo restores the previous colour."
+        ),
+        "smap.featureColour": (
+            "Feature Colour",
+            "Click a feature's colour well to choose a new colour. The map updates as you pick, and the colour is saved with the sequence. Very pale colours are automatically shown darker in this map so the sequence stays readable. Edit \u{2192} Undo restores the previous colour."
+        ),
         "gmap.sitesMenu": (
             "Restriction Sites",
-            "Choose which restriction sites to show on the map: unique, double, blunt, or a particular set of enzymes you select. Label background colours show the cut category (unique, double, blunt). Label text and border colours show methylation sensitivity — see the methylation menu (m.circle button) for the colour key."
+            "Choose which restriction sites to show on the map: unique, double, blunt, or a particular set of enzymes you select. Label background colours show the cut category (unique, double, blunt). Label text and border colours show methylation sensitivity — see the methylation menu (m.circle button) for the colour key.\n\nWhen Particular Sites is on, 'My Enzymes Only' limits the Select Enzymes list to your starred enzymes. It does not change which sites are drawn on the map."
         ),
         "gmap.displayMenu": (
             "Display Options",
@@ -689,7 +697,7 @@ final class ContextHelpManager: ObservableObject {
         ),
         "build.myEnzymesOnly": (
             "My Enzymes Only",
-            "Restrict the restriction sites shown on the map to the enzymes you have starred in your freezer list. Use Tools → Restriction Enzyme List to star the enzymes you have in stock. Greyed out if no enzymes are starred."
+            "Shown when Particular Sites is on. Limits the \"Choose site…\" list to the enzymes you have starred in your freezer list. It does not change which sites are drawn on the map. Use Tools → Restriction Enzyme List to star the enzymes you have in stock. Greyed out if no enzymes are starred."
         ),
         "build.flipOrientation": (
             "Flip Orientation",
@@ -772,6 +780,10 @@ final class ContextHelpManager: ObservableObject {
         "primer.copyBoth": (
             "Copy Both",
             "Copies the selected forward and reverse primer pair to the clipboard as formatted text, including sequences, Tm values and product size."
+        ),
+        "primer.saveBoth": (
+            "Save Both",
+            "Saves the selected forward and reverse primers as two .xdna files in a folder you choose, named after the template sequence with _Forward and _Reverse. Any 5′ tail is included and marked as a Primer Tail feature."
         ),
         "primer.runPCRWithThese": (
             "Run PCR with These Primers",
@@ -985,7 +997,7 @@ final class ContextHelpManager: ObservableObject {
         ),
         "seq.exportButton": (
             "Export",
-            "Export the sequence in a different format such as GenBank, FASTA, or plain text."
+            "Export the sequence as FASTA, GenBank or APE. To export a protein, use File → Export Protein (FASTA files are saved as .faa)."
         ),
         "seq.goToStart": (
             "Go to Start",

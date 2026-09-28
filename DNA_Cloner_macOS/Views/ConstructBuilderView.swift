@@ -16,7 +16,6 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
-
 // MARK: - Window Manager
 
 class ConstructBuilderWindowManager {
@@ -50,7 +49,6 @@ class ConstructBuilderWindowManager {
     }
 }
 
-
 // MARK: - End Processing
 
 enum EndProcessing: String, CaseIterable {
@@ -59,7 +57,6 @@ enum EndProcessing: String, CaseIterable {
     case remove       = "Blunt (Remove)"
 }
 
-
 // MARK: - Overhang End Info
 
 /// Describes what to display on each strand at one end of a fragment.
@@ -67,7 +64,6 @@ struct StickyEndDisplay {
     let topStrand: String     // bases shown on the 5′→3′ line (empty = recessed)
     let botStrand: String     // bases shown on the 3′→5′ line (empty = recessed)
 }
-
 
 // MARK: - Ligation State (survives sequenceManager @ObservedObject republishes)
 
@@ -377,8 +373,7 @@ struct ConstructBuilderView: View {
             }
         }
     }
-    
-    
+
     // MARK: - Map Panel (Left Side)
     
     private var mapPanel: some View {
@@ -401,13 +396,6 @@ struct ConstructBuilderView: View {
                     .toggleStyle(.checkbox)
                     .contextHelp("build.particularSites")
                 
-                Toggle(isOn: $useMyEnzymesOnly) {
-                    Label("My Enzymes", systemImage: "star.fill")
-                }
-                .toggleStyle(.checkbox)
-                .disabled(RestrictionEnzymeDatabase.shared.myEnzymeNames.isEmpty)
-                .contextHelp("build.myEnzymesOnly")
-                
                 if showParticularSites {
                     Button("Choose site…") {
                         showEnzymePicker = true
@@ -416,6 +404,13 @@ struct ConstructBuilderView: View {
                     .popover(isPresented: $showEnzymePicker) {
                         enzymePickerPopover
                     }
+                    // Only limits the "Choose site…" list — does not change the map
+                    Toggle(isOn: $useMyEnzymesOnly) {
+                        Label("My Enzymes Only", systemImage: "star.fill")
+                    }
+                    .toggleStyle(.checkbox)
+                    .disabled(RestrictionEnzymeDatabase.shared.myEnzymeNames.isEmpty)
+                    .contextHelp("build.myEnzymesOnly")
                 }
                 
                 Spacer()
@@ -444,7 +439,6 @@ struct ConstructBuilderView: View {
                     resetLabelTrigger: $resetLabelTrigger,
                     constructFragmentIndex: st.activeFragment == 3 ? 0 : st.activeFragment,
                     hideFragmentBar: st.activeFragment == 3,
-                    useMyEnzymesOnly: useMyEnzymesOnly,
                     isReady: .constant(true)
                 )
                 // Combine seq.id with resetLabelTrigger so that toggling the
@@ -504,18 +498,7 @@ struct ConstructBuilderView: View {
         .padding()
         .frame(width: 280, height: 400)
     }
-    
-    private func allEnzymeNames() -> [String] {
-        guard let seq = activeSequence else { return [] }
-        let database = RestrictionEnzymeDatabase.shared
-        let enzList = useMyEnzymesOnly ? database.myEnzymes : database.enzymes
-        return enzList
-            .filter { !$0.findCutSites(in: seq.sequence.uppercased(), circular: seq.isCircular).isEmpty }
-            .map(\.name)
-            .sorted()
-    }
-    
-    
+
     // MARK: - Fragment Panel (Right Side)
     
     private func fragmentPanel(
@@ -833,8 +816,7 @@ struct ConstructBuilderView: View {
             orientationMatters: !st.constructIsDirectional
         )
     }
-    
-    
+
     // =====================================================================
     // MARK: - Correct Sticky-End Overhang Display
     // =====================================================================
@@ -1133,8 +1115,7 @@ struct ConstructBuilderView: View {
         if proc == .nonProcessed { return end }
         return StickyEndDisplay(topStrand: "", botStrand: "")
     }
-    
-    
+
     // MARK: - Overhang String (for ligation compatibility check)
     
     private func overhangString(site: CutSiteRef, seqStr: String, seqLen: Int) -> String {
@@ -1211,8 +1192,7 @@ struct ConstructBuilderView: View {
     private func reverseComplementStr(_ seq: String) -> String {
         String(complementStr(seq).reversed())
     }
-    
-    
+
     // MARK: - Fragment Size
     
     private func computeFragmentSize(
@@ -1244,8 +1224,7 @@ struct ConstructBuilderView: View {
             return abs(rightCut - leftCut)
         }
     }
-    
-    
+
     // MARK: - Browse for Sequence File
     
     private func browseForSequence(sequenceID: Binding<UUID?>, fragmentIndex: Int) {
@@ -1536,10 +1515,6 @@ struct ConstructBuilderView: View {
         let vLeft3 = vLeft.cutPos3
         let vRight5 = vRight.cutPos5
         let vRight3 = vRight.cutPos3
-        let iLeft5 = iLeft?.cutPos5 ?? 0
-        let iLeft3 = iLeft?.cutPos3 ?? 0
-        let iRight5 = iRight?.cutPos5 ?? 0
-        let iRight3 = iRight?.cutPos3 ?? 0
         
         // Vector backbone runs from vRight (RED) to vLeft (GREEN) clockwise.
         // Default boundary = recessed (inner) cut position = min(cut5,cut3),
@@ -1557,9 +1532,7 @@ struct ConstructBuilderView: View {
         let vLeftCutPos  = bluntBoundary(cut5: vLeft5,  cut3: vLeft3,  seqLen: vecLen,
                                          isLeftType: false, processing: st.vectorLeft5Processing,
                                          legacyPos: vLeftLegacy)   // END of backbone
-        
 
-        
         // ══════════════════════════════════════════════════════════════════
         // EXTRACT VECTOR BACKBONE
         // ══════════════════════════════════════════════════════════════════

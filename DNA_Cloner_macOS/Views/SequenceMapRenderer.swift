@@ -97,13 +97,40 @@ private struct UniqueEnzymeSite {
 
 class SequenceMapRenderer {
     
-    // Colours
-    static let sequenceColor     = NSColor.labelColor
-    static let enzymeColor       = NSColor.labelColor
-    static let rulerColor        = NSColor.secondaryLabelColor
-    static let headerColor       = NSColor.secondaryLabelColor
+    // Colours. The map is always drawn on a white background (see
+    // SequenceMapView), so use fixed dark colours rather than the system
+    // label colours, which turn white in Dark Mode.
+    static let sequenceColor     = NSColor.black
+    static let enzymeColor       = NSColor.black
+    static let rulerColor        = NSColor(white: 0.45, alpha: 1.0)
+    static let headerColor       = NSColor(white: 0.45, alpha: 1.0)
     static let translationColor  = NSColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1.0)
     
+    /// Feature colours come from imported files and are sometimes very pale
+    /// (e.g. SnapGene pastels), which is unreadable as text on the white map.
+    /// Darken any colour that is too light, keeping its hue, until it has
+    /// roughly 3:1 contrast against white. Dark colours are left unchanged.
+    nonisolated static func readableOnWhite(red: Double, green: Double, blue: Double) -> NSColor {
+        visibleOnWhite(red: red, green: green, blue: blue, maxLuminance: 0.30)
+    }
+
+    /// Darken a colour, keeping its hue, until its relative luminance is at
+    /// most `maxLuminance` (1 = white). 0.30 suits text; the Graphical Map
+    /// uses a gentler 0.60 for filled shapes, which only affects near-white.
+    nonisolated static func visibleOnWhite(red: Double, green: Double, blue: Double,
+                                           maxLuminance: Double) -> NSColor {
+        func linear(_ v: Double) -> Double {
+            v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
+        }
+        var r = min(max(red, 0), 1), g = min(max(green, 0), 1), b = min(max(blue, 0), 1)
+        var steps = 0
+        while 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b) > maxLuminance && steps < 40 {
+            r *= 0.9; g *= 0.9; b *= 0.9
+            steps += 1
+        }
+        return NSColor(srgbRed: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: 1.0)
+    }
+
     // MARK: - Public
     
     func render(
@@ -248,8 +275,9 @@ class SequenceMapRenderer {
         guard showFeatures else { return map }  // #5: all black when features off
         
         for feature in features {
-            let nsColor = NSColor(red: CGFloat(feature.color.red), green: CGFloat(feature.color.green),
-                                  blue: CGFloat(feature.color.blue), alpha: CGFloat(feature.color.alpha))
+            let nsColor = Self.readableOnWhite(red: Double(feature.color.red),
+                                               green: Double(feature.color.green),
+                                               blue: Double(feature.color.blue))
             let fS = feature.start, fE = feature.end
             if fS <= fE {
                 for i in fS..<min(fE, seqLength) where i >= 0 { map[i] = nsColor }
@@ -702,8 +730,9 @@ class SequenceMapRenderer {
             let localIdx = feature.start - lineStart
             guard localIdx >= 0 && localIdx < colMap.count else { continue }
             let col = colMap[localIdx]
-            let nsColor = NSColor(red: CGFloat(feature.color.red), green: CGFloat(feature.color.green),
-                                  blue: CGFloat(feature.color.blue), alpha: CGFloat(feature.color.alpha))
+            let nsColor = Self.readableOnWhite(red: Double(feature.color.red),
+                                               green: Double(feature.color.green),
+                                               blue: Double(feature.color.blue))
             placements.append(FeaturePlacement(name: feature.name, startCol: col, color: nsColor))
         }
         

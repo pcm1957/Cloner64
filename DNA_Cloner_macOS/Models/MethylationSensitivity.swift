@@ -105,7 +105,6 @@ struct MethylationSensitivityDB {
     ]
 }
 
-
 // MARK: - Per-Site Methylation Checking
 
 /// Checks whether a specific cut site on a sequence is actually affected
@@ -114,7 +113,6 @@ struct MethylationChecker {
     
     /// The methylation motif sequences to search for
     private static let damMotif = "GATC"
-    private static let dcmMotifs = ["CCAGG", "CCWGG", "CCTGG"]  // W = A or T
     
     /// Check if a specific restriction site at a given position is affected
     /// by any of the active methylation systems.
@@ -231,44 +229,9 @@ struct MethylationChecker {
         }
         return result
     }
-    
-    
+
     // MARK: - Convenience: Check all sites for an enzyme on a sequence
-    
-    /// Returns a dictionary mapping site positions to their methylation warnings.
-    /// Only positions with actual warnings are included.
-    static func checkAllSites(
-        enzyme: RestrictionEnzyme,
-        sequence: String,
-        circular: Bool,
-        activeDam: Bool,
-        activeDcm: Bool,
-        activeCpG: Bool
-    ) -> [Int: [MethylationWarning]] {
-        let seq = sequence.uppercased()
-        let sites = enzyme.findCutSites(in: seq, circular: circular)
-        var results: [Int: [MethylationWarning]] = [:]
-        
-        for site in sites {
-            let warnings = checkSite(
-                enzymeName: enzyme.name,
-                sitePosition: site.position,
-                recognitionSite: enzyme.recognitionSite,
-                sequence: seq,
-                circular: circular,
-                activeDam: activeDam,
-                activeDcm: activeDcm,
-                activeCpG: activeCpG
-            )
-            if !warnings.isEmpty {
-                results[site.position] = warnings
-            }
-        }
-        
-        return results
-    }
-    
-    
+
     // MARK: - Display Helpers
     
     /// Short warning text for a set of warnings (e.g. "Dam⊘" or "CpG⊘ Dcm!")
@@ -283,33 +246,10 @@ struct MethylationChecker {
             return "\(w.type.rawValue)\(symbol)"
         }.joined(separator: " ")
     }
-    
-    /// Tooltip text for a set of warnings
-    static func tooltipText(_ warnings: [MethylationWarning]) -> String {
-        warnings.map { w in
-            let desc: String
-            switch w.effect {
-            case .blocked:  desc = "blocked by"
-            case .impaired: desc = "impaired by"
-            case .required: desc = "requires"
-            }
-            let methDesc: String
-            switch w.type {
-            case .dam: methDesc = "Dam methylation (GATC)"
-            case .dcm: methDesc = "Dcm methylation (CCWGG)"
-            case .cpg: methDesc = "CpG methylation"
-            }
-            return "Cutting \(desc) \(methDesc)"
-        }.joined(separator: "\n")
-    }
-    
+
     /// Whether any warning indicates the site won't be cut
     static func isCutBlocked(_ warnings: [MethylationWarning]) -> Bool {
         warnings.contains(where: { $0.effect == .blocked })
     }
     
-    /// Whether the enzyme requires methylation to cut (e.g. DpnI)
-    static func requiresMethylation(_ warnings: [MethylationWarning]) -> Bool {
-        warnings.contains(where: { $0.effect == .required })
-    }
 }

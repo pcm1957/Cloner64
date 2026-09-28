@@ -36,7 +36,6 @@ struct ShuttleVector: Identifiable, Codable {
         self.fusionFrameOffset = fusionFrameOffset
     }
     
-    var mcsEnzymeSet: Set<String> { Set(mcsSites) }
     var mcsSummary: String { mcsSites.joined(separator: " – ") }
 }
 
@@ -52,7 +51,6 @@ enum VectorCategory: String, Codable, CaseIterable {
     case custom = "Custom"
 }
 
-
 // MARK: - Import Result
 
 struct VectorImportResult {
@@ -67,7 +65,6 @@ struct VectorImportResult {
     let mcsDetected: Bool
     let mcsRange: String
 }
-
 
 // MARK: - Library Manager
 
@@ -153,15 +150,7 @@ class ShuttleVectorLibrary: ObservableObject {
     // =========================================================================
     // MARK: Queries
     // =========================================================================
-    
-    func vectorsWithSite(_ enzymeName: String) -> [ShuttleVector] {
-        vectors.filter { $0.mcsEnzymeSet.contains(enzymeName) }
-    }
-    
-    func vectorsWithPair(_ enzyme5: String, _ enzyme3: String) -> [ShuttleVector] {
-        vectors.filter { $0.mcsEnzymeSet.contains(enzyme5) && $0.mcsEnzymeSet.contains(enzyme3) }
-    }
-    
+
     // =========================================================================
     // MARK: Persistence
     // =========================================================================
@@ -242,8 +231,7 @@ class ShuttleVectorLibrary: ObservableObject {
         
         return all
     }
-    
-    
+
     // =========================================================================
     // MARK: Import from sequence file
     // =========================================================================
@@ -315,8 +303,7 @@ class ShuttleVectorLibrary: ObservableObject {
             mcsDetected: mcsDetected, mcsRange: mcsRange
         )
     }
-    
-    
+
     // =========================================================================
     // MARK: Built-in vectors (static)
     // =========================================================================

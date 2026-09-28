@@ -366,11 +366,7 @@ final class DigestVerificationAnalyzer {
     }
     
     private func reverseComplement(_ s: String) -> String {
-        let comp: [Character: Character] = [
-            "A": "T", "T": "A", "G": "C", "C": "G", "N": "N",
-            "a": "t", "t": "a", "g": "c", "c": "g", "n": "n"
-        ]
-        return String(s.reversed().map { comp[$0] ?? $0 })
+        DNASequence.reverseComplementString(s)
     }
     
     private func deduplicate(_ strategies: [VerificationStrategy]) -> [VerificationStrategy] {
