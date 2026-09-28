@@ -1,205 +1,130 @@
-Cloner 64 for macOS
+# Cloner 64 for macOS
 
-A comprehensive DNA sequence analysis and molecular cloning application for macOS, built as a modern 64-bit replacement for Serial Cloner. Native Swift/SwiftUI for Apple Silicon and Intel Macs.
+A DNA sequence analysis and molecular cloning application for macOS, built as a modern 64-bit replacement for Serial Cloner. Native Swift/SwiftUI for Apple Silicon and Intel Macs.
 
-Opening Cloner 64 for the first time
+## Download and Install
 
-Cloner 64 is not signed with an Apple Developer certificate, so macOS blocks it the first time you try to open it. This is a one-time step, and the app works normally afterwards.
+Download the latest version from the **[Releases](https://github.com/pcm1957/Cloner64/releases)** page, unzip it, and move **Cloner 64** to your Applications folder. A full user handbook (PDF) is included with each release.
 
-On macOS 15 (Sequoia) and macOS 26 (Tahoe), the app may appear to start — an icon shows in the Dock — but no window ever opens, and no warning is displayed. That is macOS silently blocking it. It is not a fault in the app.
+Cloner 64 is not signed with an Apple Developer certificate, so macOS blocks it the first time you open it:
 
-Step 1 — try the simple route first
-Move Cloner 64.app to your Applications folder
-Right-click it and choose Open
-If a warning appears, click Open again
+- **macOS 14 and earlier:** right-click Cloner 64, choose **Open**, then click **Open** again.
+- **macOS 15 (Sequoia) and later:** the app may show in the Dock but never open a window. Open Terminal, type the following (including the space at the end, without pressing Return):
 
-If a window appears, you are done. This works on macOS 14 and earlier.
+  ```
+  xattr -dr com.apple.quarantine 
+  ```
 
-Step 2 — if the app still will not open
+  then drag Cloner 64 from Finder into the Terminal window and press Return. This removes the download quarantine marker from Cloner 64 only; it changes no security settings. If you see "Operation not permitted", switch on Terminal under System Settings → Privacy & Security → App Management and try again.
 
-Apple removed that shortcut in macOS 15. You will need one Terminal command.
+## Features
 
-Open Terminal (Applications → Utilities → Terminal)
-Type the following, including the space at the end, but do not press Return yet:
-   xattr -dr com.apple.quarantine
-Drag Cloner 64.app from Finder into the Terminal window. This fills in the location for you, so there is nothing to type.
-Press Return. If nothing is printed, it worked.
-Open the app normally.
+### Files and Sequences
+- Create, open, edit and save DNA and protein sequences; circular and linear topologies; undo/redo
+- Multiple sequence windows open at once; welcome screen with a sample pUC19 file
+- **XDNA** (.xdna) and **XPRT** (.xprt) — Serial Cloner DNA and protein formats (read/write)
+- **FASTA** (.fasta, .fa, .fna; protein .faa) — read/write. A .fasta file containing protein sequence can be opened as protein
+- **GenBank** (.gb, .gbk) and **APE** (.ape) — read/write
+- **SnapGene** (.dna) — read, detected by its binary signature
 
-If you see Operation not permitted, go to System Settings → Privacy & Security → App Management, switch on Terminal, and repeat step 4.
+### Sequence Editor
+- Colour-coded feature overlays, line numbering, complementary strand display
+- Find drawer for sequences, enzyme sites and ORFs
+- Selection information: base composition, GC content, Tm and translation
+- Lock/unlock editing, upper/lowercase, reverse, complement, reverse complement, RNA ↔ DNA
 
-What that command does
+### Graphical Map
+- Circular and linear maps with collision-avoiding feature and enzyme labels
+- Restriction sites by category: unique, double, blunt, or a chosen set of enzymes
+- Context-aware methylation sensitivity (Dam, Dcm, CpG)
+- Change a feature's colour directly from the map
+- Zoom, adjustable label size, split view with the sequence; export as PDF or PNG; print
 
-macOS tags every downloaded file with a "quarantine" marker. The command removes that marker from Cloner 64 only. It changes no security settings and affects no other application.
+### Sequence Map
+- Text-based restriction map with cut sites marked on the sequence
+- Optional translation frames above and below the DNA
+- Feature list with editable colours; copy and print
 
-Features
-Core Functionality
-Create, open, edit, and manage DNA and protein sequences
-Circular and linear topologies with undo/redo
-Multiple sequence windows open simultaneously
-Welcome screen with sample pUC19 file and recent files
-File Format Support
-XDNA (.xdna) — Serial Cloner DNA format (read/write)
-XPRT (.xprt) — Serial Cloner protein format (read/write)
-FASTA (.fasta, .fa, .fna) — plain sequence (read/write)
-GenBank (.gb, .gbk) — annotated sequence (read/write)
-APE (.ape) — A Plasmid Editor (read)
-SnapGene (.dna) — SnapGene binary format (read)
-Automatic format detection including binary magic-byte sniffing
-Files containing characters that are not valid bases or amino acids are reported on import
-Sequence Editor
-Colour-coded feature overlays on the sequence
-Line numbering with complementary strand display
-Find/replace drawer for sequences, enzyme sites, and ORFs
-Right-click context menu for copy, cut, paste, translate, and feature editing
-Lock/unlock editing, uppercase/lowercase conversion
-Selection by click-drag or Shift+Click
-Graphical Map
-Circular plasmid map and linear map display
-Features with colour coding and collision-avoiding labels
-Restriction site markers with selectable display modes (unique, double, blunt, particular)
-ORF arcs with double-click to open
-Methylation sensitivity overlay (Dam, Dcm, CpG) with context-aware site checking
-Pinch-to-zoom and adjustable label font size
-Export as PDF, PNG, or JPG; Print support
-Sequence Map
-Text-based restriction map with enzyme cut sites marked on the sequence
-Optional translation frames above/below
-Feature annotations displayed in context
-Configurable line width; copy, print, and PDF export
-Restriction Enzyme Analysis
-Database of 163 restriction enzymes with isoschizomer consolidation, including 60 with degenerate (IUPAC) recognition sites
-Recognition site scanning with circular wrapping support, including IUPAC ambiguity codes
-Cut structure diagram showing both strands split at the cleavage point, with degenerate codes correctly complemented
-Type IIS cut positions displayed in catalogue form (BsaI as +1/+5)
-Filter by single cutters, non-cutters, blunt-end, or sticky-end
-Methylation sensitivity data per enzyme with context-aware warnings
-Site Usage table with cut positions, fragment sizes, and methylation flags
-Compatible Cohesive Ends reference (e.g. BamHI + BglII)
-Editable enzyme database — add, edit, or remove enzymes, with validation that rejects self-contradictory entries
-Enzymes you add or edit are saved between launches, and can be exported to a file for backup or sharing
+### Restriction Enzymes
+- About 160 enzymes, with isoschizomers consolidated and methylation sensitivity data
+- Add, edit or remove enzymes; changes are saved and can be exported or imported
+- **My Enzymes** — star the enzymes in your freezer and limit suggestions to them
+- Site Usage table (cut positions, fragment sizes, methylation flags)
+- Compatible Cohesive Ends reference (e.g. BamHI + BglII)
 
-Note: Compatible Cohesive Ends and Predictive Cloning omit Type IIS enzymes and enzymes with degenerate recognition sites. Both leave an overhang determined by the target sequence rather than by the enzyme — AccI's overhang is written MK, which is AG, AT, CG or CT depending on what was cut — so compatibility cannot be settled from the enzyme alone. To check a specific case, cut the sequence and compare the overhangs in Site Usage.
+### Feature Library
+- Automatic feature scanning against 147 verified elements in 11 collections: origins, selection markers, promoters, terminators, reporters, affinity and epitope tags, protease sites, linkers, regulatory and recombination elements, two-hybrid elements and primer binding sites
+- Create, import and export your own collections
 
-How your enzymes are stored
+### Cloning Tools
+- **Build a Construct** — in silico ligation with sticky-end compatibility checking, end processing (fill/trim) and construct verification
+- **Predictive Cloning** — screens enzyme combinations for a vector and insert; scores directionality, internal cuts, reading frame (fusion mode), methylation and more; supports partial digests, compatible-end cross-cloning, multi-source scanning and PCR routes
+- **Shuttle Vector Routes** — finds PCR-free multi-step routes through intermediate vectors, optionally limited to the vectors you have (**My Vectors**)
+- **Check Construct** — suggests diagnostic digests (fingerprint, feature presence, orientation, comparison with parent)
+- **Virtual Cutter** — virtual digest with a simulated agarose gel, adjustable from 0.5% to 2.0%; export as PDF or PNG; print
 
-Your additions, edits and deletions are written to ~/Library/Application Support/Cloner 64/, separately from the app, so they survive installing a new version.
+### PCR
+- **Design PCR Primers** — primers for a region, feature or ORF with Tm, GC% and primer-dimer screening; 5′ tails; circular templates; your existing primer stock is checked first; save single primers or both of a pair
+- **Run a PCR** — in silico PCR with Taq (A-overhangs) or Pfu/Phusion (blunt)
 
-Only your changes are saved, not a copy of the whole database. The built-in list is rebuilt from source on every launch and your changes are applied on top, so corrections to built-in enzymes in later releases still reach you. An enzyme you have personally edited keeps your version.
+### Alignment and Proteins
+- **Align Two Sequences** — DNA or protein (BLOSUM62), full length (introns appear as clean gap blocks) or best local match
+- Protein viewer with Clustal-style colouring, molecular weight, pI and extinction coefficient
+- Kyte-Doolittle hydropathy plot with adjustable transmembrane threshold
+- NCBI BLAST search (DNA and protein) pre-loaded with your sequence
+- Genetic code and IUPAC code reference tables
 
-Enzyme File → Export writes a .c64enz file (plain JSON) for backup or sharing. Import offers Merge or Replace. Restore Built-in Defaults discards your changes without touching your ★ My Enzymes list.
+### Help
+- Context help throughout the app: turn it on from the Help menu, then hover over any control
 
-Feature Management
-Manual feature addition and editing
-Automatic feature scanning against a built-in Feature Library (147 elements across 11 function-first collections)
-Feature Library collections: Origins of Replication, Selection Markers, Promoters, Terminators, Reporters, Affinity & Epitope Tags, Protease Cleavage Sites, Linkers & Polycistronic Elements, Regulatory & Recombination, Two-Hybrid / Protein Interaction, and Primer Binding Sites
-Import/export feature collections
-Feature types: Promoter, Gene, CDS, Terminator, Origin, Selection Marker, and more
-Colour-coded features with strand direction (+/−)
-Sequence Analysis
-Base composition (A, T, G, C counts and percentages)
-GC/AT content with sliding-window GC plot
-Molecular weight and Tm estimation
-ORF finder across all 6 reading frames with configurable minimum length
-Translation in all 6 reading frames (standard genetic code)
-Reverse complement, complement, and reverse operations
-RNA ↔ DNA conversion
-Molecular Cloning Tools
+## Keyboard Shortcuts
 
-Build a Construct — In silico ligation workbench. Select vector and insert on graphical maps, choose restriction sites, and simulate ligation with sticky-end compatibility matching. Handles backbone/insert extraction, overhang display, end processing (fill/trim), and junction reconstitution.
+| Shortcut | Action |
+|----------|--------|
+| ⌘N / ⇧⌘N | New DNA / Protein Sequence |
+| ⌘O | Open File |
+| ⌘S / ⇧⌘S | Save / Save As |
+| ⌘Z / ⇧⌘Z | Undo / Redo |
+| ⌘X / ⌘C / ⌘V | Cut / Copy / Paste |
+| ⇧⌘V | Paste as New Sequence |
+| ⌘A | Select All |
+| ⌘U / ⇧⌘U | Make Uppercase / Lowercase |
+| ⌘T | Translate Selection |
+| ⌘L | Feature Collection |
+| ⌘B | Scan for Features |
+| ⇧⌘K | Build a Construct |
+| ⇧⌘D | Virtual Cutter |
+| ⇧⌘R | Run a PCR |
+| ⇧⌘A | Align Two Sequences |
+| ⇧⌘E | Export DNA as FASTA |
+| ⌘P / ⇧⌘P | Print / Page Setup |
+| ⇧⌘? | Context Help on/off |
 
-Virtual Cutter — Virtual restriction digest with simulated agarose gel electrophoresis. Select one or more enzymes, view fragment sizes with hover tooltips. A gel strength slider (0.5%–2.0% agarose) repositions the bands to where they would run on a gel of that concentration, and the co-migration warning follows it — so you can find a gel that separates a troublesome pair before pouring one. Export as PDF, PNG, JPG, or print.
+## System Requirements
 
-Predictive Cloning — Automated cloning strategy analysis. Screens all enzyme combinations against a vector + insert pair. Scores strategies by directionality, internal cuts, reading frame preservation (fusion protein mode with per-junction frame offsets), methylation sensitivity, and vector uniqueness. Supports partial digest strategies and compatible-end cross-enzyme cloning. Includes fragment size display per strategy, gel resolution warnings, junction sequence previews, per-strategy protocol export, and a "Design Primers" button linking to the primer design tool. Generates predicted construct sequences with remapped features.
+- **macOS** 13.5 (Ventura) or later
+- **Apple Silicon or Intel**
 
-Note: Type IIS enzymes (BsaI, BsmBI, BbsI, SapI) are not offered here. They cut outside their recognition site, so their overhang depends on the target sequence and cannot be matched in advance — which every strategy in this tool relies on. Golden Gate assembly is not currently supported. These enzymes remain available everywhere else in the app.
+## Building from Source
 
-Shuttle Vector Library — Built-in database of common shuttle vectors with MCS site information. Includes a pathfinder that identifies multi-step shuttle routes between vectors (runs on a background thread with early pruning and route caps). Resizable pop-up window for viewing routes.
+Requires **Xcode 26** or later. Clone the repository, open `Cloner 64.xcodeproj`, and choose Product → Run (⌘R).
 
-PCR Tools
-
-Design PCR Primers — Select a template and target region (or pick a feature/ORF). Suggests forward and reverse primers with Tm, GC%, and primer-dimer screening. Support for 5′ tails (restriction sites or custom sequences). Visual amplicon map with draggable handles. Circular template support. Save and import primers with tail/annealing annotations.
-
-Run a PCR — In silico PCR simulation. Choose template, enter primers (with optional 5′ tails), select polymerase (Taq or Pfu). Predicts amplified product including Taq A-overhangs. Product saved as a new sequence.
-
-Alignment
-Pairwise alignment of DNA and protein sequences in one window
-Gapped alignment — introns and insertions appear as clean gap blocks (e.g. cDNA vs genomic)
-Full-length or local (Smith-Waterman, best-matching region) alignment
-BLOSUM62 scoring for proteins, with identity and similarity statistics and chemical-class colour coding
-Protein Analysis
-Dedicated protein sequence viewer with Clustal-style colouring
-Properties panel: molecular weight, pI, extinction coefficient
-Kyte-Doolittle hydropathy plot with transmembrane threshold, and a cursor readout giving residue number, one-letter code and hydropathy value
-Find drawer for protein sequences
-External Tools
-NCBI BLAST Search (DNA and Protein) — opens browser pre-loaded with your sequence
-Reference
-Genetic Code table
-IUPAC Nucleotide Codes
-System Requirements
-macOS: 13.5 (Ventura) or later
-Architecture: Universal (Apple Silicon and Intel)
-Xcode: 14.0 or later (for building from source)
-Swift: 5.7 or later
-Installation
-
-See SETUP.md for detailed Xcode project setup instructions.
-
-Quick Start
-Open Xcode 14+
-Create new macOS → App project (SwiftUI, Swift)
-Product Name: Cloner 64
-Delete auto-generated files
-Drag the DNA_Cloner_macOS folder contents into the project
-Set deployment target to macOS 13.5
-Build and Run (⌘R)
-Keyboard Shortcuts
-Shortcut	Action
-⌘N	New DNA Sequence
-⇧⌘N	New Protein Sequence
-⌘O	Open File
-⌘S	Save
-⇧⌘S	Save As
-⌘Z	Undo
-⇧⌘Z	Redo
-⌘X / ⌘C / ⌘V	Cut / Copy / Paste
-⇧⌘V	Paste as New Sequence
-⌘A	Select All
-⌘U	Make Uppercase
-⇧⌘U	Make Lowercase
-⌘T	Translate Selection
-⌘L	Feature Collection
-⌘B	Scan for Features
-⇧⌘K	Build a Construct
-⇧⌘D	Virtual Cutter
-⇧⌘R	Run a PCR
-⇧⌘A	Align Two Sequences
-⇧⌘E	Export as FASTA
-⌘P	Print
-⇧⌘P	Page Setup
-Architecture
-Design Patterns
-MVVM with SwiftUI @State, @Published, and ObservableObject
-Singleton window managers for each tool window (NSWindow + NSHostingController)
-SequenceManager as central document controller (@EnvironmentObject)
-RestrictionEnzymeDatabase as shared singleton, with user changes persisted as an overlay on the built-in list
-Project Structure
+```
 DNA_Cloner_macOS/
-├── Models/          Data models, parsers, business logic
-├── Views/           All SwiftUI views, window managers, app entry point
-├── Managers/        Window managers and library extensions
-└── Resources/       Info.plist
+├── Models/      Data models, file parsers, analysis logic
+├── Views/       SwiftUI views, window managers, app entry point
+├── Managers/    Window managers and library extensions
+└── Resources/   Info.plist
+```
 
-52 Swift source files • ~46,500 lines of code
+48 Swift source files, about 45,000 lines of code.
 
-See SETUP.md for a complete file-by-file project structure reference.
+## Acknowledgements
 
-Acknowledgements
+Inspired by Serial Cloner, created by Franck Perez, and by Christian Marck's Strider — tools that shaped how a generation of biologists worked with DNA sequences.
 
-Inspired by Serial Cloner, created by Franck Perez, and by Christian Marcks's Strider — powerful molecular biology tools that shaped how a generation of biologists worked with DNA sequences.
+---
 
-Version: 1.3
-Last Updated: September 2026
-Platform: macOS 13.5+
-Language: Swift 5.7+
+**Version**: 1.4  
+**Last Updated**: September 2026  
+**Platform**: macOS 13.5+
