@@ -571,6 +571,14 @@ final class ContextHelpManager: ObservableObject {
             "Feature List",
             "Open a side list of features so you can choose individually which ones to show."
         ),
+        "smap.search": (
+            "Search",
+            "Find and highlight a DNA sequence or an amino acid sequence in the map. Write it the way you would write it down: DNA 5' to 3', protein N-terminus to C-terminus. Type the letters with no spaces between them. Both strands and all six reading frames are searched, so you never have to work out the reverse complement yourself. A match on the bottom strand is highlighted on the bottom-strand row, and a match in a reverse reading frame on that frame's row, which is why a reverse-frame hit reads backwards across the page."
+        ),
+        "smap.searchSummary": (
+            "Search Results",
+            "Says where the hits are, by strand and by reading frame, since a highlight on its own cannot tell you that and a hit scrolled out of view looks like no hit at all. A palindromic restriction site reads the same on both strands, so it is reported once and labelled palindromic rather than counted twice. Only the rows the map has drawn can be searched, so if some reading frames are switched off a protein query may find nothing simply because its frame is not being shown; the line says so when that is the case, and \"No match\" on its own means all six frames were searched and the sequence is not there."
+        ),
         "smap.showReverseStrand": (
             "Show Reverse Strand",
             "Show the reverse complement strand beneath the forward strand."
@@ -1032,27 +1040,31 @@ final class ContextHelpManager: ObservableObject {
 
         "predict.vectorPicker": (
             "Vector",
-            "Choose the destination vector — the backbone into which you want to clone. If the vector matches one in the shuttle vector library, its MCS will be used automatically; otherwise a manual or full-enzyme scan is used."
+            "Choose the destination vector — the backbone your insert goes into. If the vector is in your Cloning Vector Library, its cloning sites (MCS) are already known and shuttle routes can be searched; otherwise every enzyme site in the vector (or in the region you set) is checked."
         ),
         "predict.vectorBrowse": (
             "Browse for Vector",
             "Open a DNA sequence file from disk and use it as the vector. The file is loaded into the app (so it also becomes available as an open sequence window) and selected as the vector in one step."
         ),
         "predict.insertionSiteMode": (
-            "Insertion Site Mode",
-            "Choose where in the vector the insert can go. 'Anywhere' searches across a user-defined MCS region; 'Between features' restricts the insertion to the span between a chosen 5′ and 3′ feature — useful for keeping a promoter and terminator flanking your insert."
+            "Insert Into",
+            "Choose how to mark where in the vector the insert may go. ‘By position’: type a start and end position below (for example the MCS), or leave them blank to search the whole vector. ‘Between two features’: pick a 5′ and a 3′ feature and the insert goes between them — useful for keeping a promoter and terminator either side of your insert."
         ),
         "predict.sourceMode": (
-            "Source Mode",
-            "'Single source' takes the insert from one open sequence. 'Multi-source scan' searches all open sequences for features matching a name (e.g. 'GFP') and treats each hit as a candidate insert — useful when you have the same gene in several files."
+            "Insert From",
+            "‘One sequence’: pick the open sequence that contains your insert. ‘Find a feature by name’: type a feature name (for example GFP); every open sequence except the vector is searched for features with that name, and each match is tried as the insert — useful when you have the same gene in several files and want the easiest one to clone from. Only available for simple insertion; fusion cloning needs one defined insert."
+        ),
+        "predict.myEnzymesOnly": (
+            "Use Only My Enzymes",
+            "Only use the enzymes you have starred in Tools → Restriction Enzyme List — both when finding cloning strategies and when the Verify button suggests diagnostic digests. Useful for getting suggestions you can carry out with the enzymes in your freezer."
         ),
         "predict.analyze": (
             "Analyze Strategies",
-            "Runs the cloning strategy search and ranks the viable direct routes — single-enzyme, double-enzyme and blunt-end ligations. In multi-source mode it scans every matching source in one pass. Routes that go via an intermediate shuttle vector are found separately, using the ‘Find Shuttle Routes’ button. Shortcut: ⌘↩."
+            "Searches for cloning strategies and ranks them — direct digests (one or two enzymes), blunt-end ligations and PCR routes. In ‘Find a feature by name’ mode the button reads ‘Analyze All Matches’ and every matching feature is tried as the insert in one pass. Routes that go via an intermediate shuttle vector are found separately, using the ‘Find Shuttle Routes’ button. Shortcut: ⌘↩."
         ),
         "predict.sourcePicker": (
-            "Source Sequence",
-            "Choose which open sequence contains the insert. A green 'Blunt ends' badge appears if the source is a linear fragment with no overhangs, which enables direct blunt-end ligation strategies."
+            "Insert Sequence",
+            "Choose the open sequence that contains your insert. A green ‘Blunt ends’ label appears if it is a linear fragment with no overhangs, which allows direct blunt-end ligation strategies."
         ),
         "predict.sourceBrowse": (
             "Browse for Source",
@@ -1064,7 +1076,7 @@ final class ContextHelpManager: ObservableObject {
         ),
         "predict.cloningMode": (
             "Cloning Mode",
-            "Simple insertion ignores reading frame. The Fusion modes require the insert to be in-frame with a vector ORF at one or both junctions — use these for His-tag (N-terminal), GFP-tag (C-terminal), or double-tagged fusion constructs.\n\nIn Fusion mode, the app checks every candidate strategy to verify that the restriction-enzyme cut sites on both the vector and the insert land on codon boundaries that keep the reading frame intact end-to-end. Direct-digest strategies that fail this check are silently filtered out, so only genuinely in-frame options appear. PCR-based strategies are always shown because the primer design step handles frame alignment."
+            "Simple insertion: put the insert into the vector; the reading frame is not checked.\n\nFusion modes join your insert to a tag — a coding sequence already in the vector, such as a His-tag, GFP or GST — to make one fusion protein. The labels read from the start (N-terminus) to the end (C-terminus) of the protein: Tag–Insert puts the tag at the start, Insert–Tag at the end, Tag–Insert–Tag on both. Choose by where you want the tag in the final protein, not by where the cloning site sits on the vector map.\n\nIn a fusion the tag and your insert must be read in the same reading frame, so the protein runs from one into the other without a frameshift. The app checks this at each junction for every candidate strategy and marks each junction in frame or out of frame. The badge refers to the join between tag and insert, not to either sequence on its own. See the Frame Offsets help for what to do if nothing comes out in frame."
         ),
         "predict.shuttleRoutes": (
             "Find Shuttle Routes",
@@ -1079,8 +1091,8 @@ final class ContextHelpManager: ObservableObject {
             "Builds the predicted construct for this strategy and opens it as a new sequence window, so you can examine the finished clone with all features remapped."
         ),
         "predict.stratView": (
-            "View Protocol",
-            "Shows a step-by-step wet-lab protocol for this strategy — digests, gel purification, ligation and transformation — in a pop-up window."
+            "Protocol",
+            "A step-by-step wet-lab protocol for this strategy — digests, gel purification, ligation and transformation.\n\nView protocol opens it in a window. Save protocol… writes it to a file you can keep with your lab notes. Print protocol… sends it to the printer to take to the bench."
         ),
         "predict.stratSave": (
             "Save Protocol",
@@ -1096,19 +1108,63 @@ final class ContextHelpManager: ObservableObject {
         ),
         "predict.protectedRegions": (
             "Protected Regions",
-            "Mark regions of the vector that must not be cut by any enzyme used in the cloning strategy. Features such as antibiotic resistance markers and origins of replication are automatically offered; you can also add custom coordinate ranges."
+            "Parts of the vector that must not be cut — any enzyme that cuts inside a protected region is not used. All annotated features start out protected (for example the antibiotic resistance gene and the origin); untick any you don’t mind losing, or add your own coordinate range.\n\nA feature that overlaps where you are cloning — your Positions, or the gap between your two chosen features — is never protected, because that would rule out every enzyme that cuts there. Such features are shown greyed out as ‘overlaps where you’re cloning’."
         ),
         "predict.fusionORF": (
             "Reading Frame to Fuse",
-            "This is a separate step from choosing the insert region, and it is easy to think you have already done it. Picking the insert region above decides which stretch of DNA is pulled out (for a Feature or ORF that stretch also includes about 200 bp of flanking sequence, so the search can find nearby cut sites). This step decides which reading frame inside that stretch is actually fused to the vector’s tag — its exact start, end and strand — so the app can keep the fusion in frame. It is not a suitability double-check; the real in-frame test happens when you press Analyze, and this simply tells that test where the coding frame sits.\n\nIf you chose an ORF as the insert, the frame is already known and this collapses to a confirmation line. If you chose a whole sequence, a custom range, or a feature, a region can contain more than one reading frame, so you confirm which one to fuse — most often the feature you already picked, listed here by name. A feature whose length is not a whole number of codons is still offered, flagged with a warning, because a junction offset can make up the difference. Reverse-strand frames are reverse-complemented automatically before fusion."
+            "Which reading frame in your insert is joined to the vector’s tag.\n\nWhen you choose a Feature or an ORF as your insert in Step 2, that choice settles the reading frame and the strand, so there is nothing to pick: the app reads the frame from the feature itself and confirms it in one line beside your insert. If the feature sits on the reverse strand, the insert is reverse-complemented before fusion and the line says so.\n\nYou are only asked to choose a frame in two cases. The first is when the insert is the whole sequence or custom positions, because that stretch of DNA can be read in more than one frame and the app cannot tell which one you mean.\n\nThe second is when the feature you chose is a cloning fragment: a stretch running from one restriction site to the other, which is how fragments are normally annotated, since that is what you actually cut out and move between plasmids. Its first base is a cloning site, not the first base of a codon, so the coding sequence starts somewhere inside it.\n\nIn that case the app finds the reading frames within the fragment, selects the longest — which is almost always the gene being moved — and shows the rest so you can choose a different one. The amino-acid count is the best guide. Without this the app would read the fragment from its first base, land in the wrong frame and predict a fusion protein a few residues long."
         ),
         "predict.frameOffset": (
-            "Frame Offset",
-            "These values tell the app how many bases lie between the nearest codon boundary and the restriction-enzyme cut site at each junction. When you select a vector tag feature, both offsets are filled in automatically from the actual DNA sequence — you do not normally need to change them.\n\nThe vector offset (left box) is measured from the tag feature's annotated start to the vector cut site. The insert offset (right box) is measured from the insert excerpt start to the ORF ATG. Together they let the app calculate whether the reconstituted junction is in-frame without needing to know in advance which enzyme will be used.\n\nAdjust manually only if you are entering offsets by hand without a tag feature selected, or if the annotation on your vector tag does not start precisely at the ATG."
+            "Reading Frame and Frame Offsets",
+            "Why this matters: in a fusion, the tag and your insert must be read in the same reading frame, so the protein runs from one into the other without a frameshift. Where the restriction enzyme cuts decides whether the two frames line up at each junction.\n\nNormally you never need to set these: when a vector tag is chosen, the app works out the frame at each junction itself, trying every frame for each candidate enzyme, and marks each junction in frame or out of frame. The badge describes the join between the tag and your insert — neither sequence is wrong on its own.\n\nThey are only needed when the vector’s tag isn’t annotated, so the app can’t measure it. Each number is how many bases (0, 1 or 2) lie between the nearest codon boundary and the cut site, on the vector side and the insert side. Usually 0. Setting the vector offset to anything other than 0 switches the automatic frame search off for that junction.\n\nIf no strategy keeps both junctions in frame: look at the PCR strategies — when designing the primers you can add 1 or 2 extra bases between the restriction site and your coding sequence to shift the frame; try one of the alternative vectors the results suggest (their tag sits in a frame that suits your insert); use a different enzyme, since a different cut position changes the frame; or look at the blunt-end strategies, where filling in an overhang (Klenow) adds bases and nibbling it back (mung bean nuclease) removes them — each shifts the frame by a different amount, so the app lists both versions and one may come out in frame."
+        ),
+        "predict.badgePath": (
+            "Cloning Route",
+            "How the insert is released and joined. Direct digest (green): cut both vector and insert with restriction enzymes and ligate — the fewest steps. Blunt via fill-in / nibble (teal): the ends do not match, so they are made flush with Klenow (which adds the overhang bases) or mung bean nuclease (which removes them), then ligated. PCR (blue): the insert is amplified with primers that carry the restriction sites, then digested and ligated — more steps, but you choose exactly where the sites sit."
+        ),
+        "predict.badgePartial": (
+            "Partial Digest",
+            "The enzyme cuts more than once in the DNA, so a full digest would cut the fragment you want into pieces. A partial digest stops the reaction early — by shortening the time, lowering the enzyme or cooling the reaction — so that some molecules are cut only at the ends you want. You then run a gel and purify the correct band.\n\nIt works, but it is fiddly: the timing needs testing, the yield is low and picking the right band takes care. Prefer a strategy that does not need one if the list offers it."
+        ),
+        "predict.badgeCompatible": (
+            "Compatible Ends",
+            "The two enzymes are different but leave the same overhang, so the ends will ligate to each other — for example BamHI and BglII, or SalI and XhoI.\n\nThe consequence is that neither original site is regenerated at the junction, so you cannot cut the construct back out with either enzyme afterwards. Plan your diagnostic digest around a different site."
+        ),
+        "predict.badgeDirectional": (
+            "Directional / Non-directional",
+            "Directional: the two ends are different, so the insert can only go in one way round. Nothing to screen for — the construct is correct by design.\n\nNon-directional: both ends are the same (one enzyme, or two that leave matching overhangs), so the insert can ligate either way round. About half your colonies will carry it backwards. Both orientations are listed, and the orientation badge tells you which each row shows, but you will need a diagnostic digest or sequencing to find the right clones. The vector can also re-close on itself, so treating it with phosphatase is worth it."
+        ),
+        "predict.badgeOrientation": (
+            "Insert Forward / Reversed",
+            "Which way round this row puts the insert. Forward means the insert reads in the same direction as it did in the source; reversed means the reverse complement goes in.\n\nFor a non-directional strategy both are shown, because both will happen in the ligation and you cannot choose — you pick them out afterwards by diagnostic digest or sequencing. For a directional strategy the orientation is fixed, and a reversed badge means the app deliberately flipped the insert to fit the vector's sites."
+        ),
+        "predict.badgeInternalCutter": (
+            "Enzyme Cuts Inside the Insert",
+            "Red — this strategy uses that enzyme on the insert, and the insert has another site for it inside. A full digest would cut your fragment into pieces.\n\nWhat you can do: a partial digest, timed so some molecules are cut only at the ends — it works, but it is fiddly and needs careful gel work; choose a different enzyme pair from the list; or remove the internal site by site-directed mutagenesis, which can be a silent change if it falls in coding sequence.\n\nOrange — the enzyme has a site in the insert but this strategy only uses it on the vector, so nothing in the insert is cut. Nothing to fix; it is noted in case you plan to use that enzyme later for a diagnostic digest."
+        ),
+        "predict.badgeMethylation": (
+            "Methylation",
+            "Methylation blocked: in a normal laboratory strain, Dam or Dcm methylase modifies this site and the enzyme will not cut it. The fix is a passage through a methylation-free host — transform a dam⁻/dcm⁻ strain such as JM110, SCS110 or ER2925, grow it and prepare fresh DNA. The site is then unmethylated and cuts normally. It costs you a day or two, not the strategy.\n\nNeeds methylation: the opposite case — this enzyme only cuts when the site IS methylated, so the DNA must come from an ordinary dam+/dcm+ strain (DH5α, TOP10 and the like). PCR product and DNA from a dam⁻ strain will not be cut.\n\nWhich methylases are assumed can be changed in the methylation settings."
+        ),
+        "predict.badgeEatIn": (
+            "Bases Lost at the Junction",
+            "The cut site does not sit exactly at the boundary of your insert, so a few bases of coding sequence are removed or added where the two join.\n\nIn a fusion this matters: bases lost from the start or end of your protein change its first or last few residues, and the app marks the junction red when enough is lost to be worth your attention. A short, clean loss in a disordered terminus is often harmless; a loss that cuts into a folded domain or an active site is not. Check the construct in the sequence viewer before committing to it."
+        ),
+        "predict.fusionProteinSize": (
+            "Predicted Fusion Protein",
+            "How long the protein from this construct would be, in amino acids, counted from the start codon that begins the tagged protein through to the first stop codon.\n\nIt is worked out from the construct the Build button would actually make, so it accounts for the tag, the junction and your insert together. A number much shorter than you expect is the clearest sign that something is wrong: either the insert is being read in the wrong frame, or a stop codon lies between the tag and your coding sequence.\n\nNo number is shown when it cannot be worked out with confidence — no tag chosen, no start codon upstream of the tag, translation running off the end without a stop, or a blunt fill-in/nibble route, where the fragment is derived differently. A missing number means the app does not know, not that the construct is wrong."
+        ),
+        "predict.frameBadge": (
+            "In Frame / Out of Frame",
+            "Each fusion strategy is marked at its junctions. The 5' junction is where an N-terminal tag in the vector meets the start of your insert; the 3' junction is where the end of your insert meets a C-terminal tag.\n\n\"In frame\" means the codons run straight through the join, so the tag and your insert are read as one protein. \"Out of frame\" means they do not line up, and the two would be read in different frames. Neither sequence is wrong in itself — it is the join that does not fit.\n\nIn a fusion, out-of-frame strategies are not listed at all. An out-of-frame junction does not give a poorer fusion protein; it gives none. If every enzyme route is out of frame the app says so and points you to the PCR strategies, where 1 or 2 extra bases can be added in the primers to set the frame.\n\nSimple insertion does not check the frame, so no badge is shown and nothing is filtered."
+        ),
+        "predict.alternativeVectors": (
+            "Alternative Vectors",
+            "This appears when a fusion has no in-frame enzyme route with your current vector.\n\nMany expression vectors come as a set of two or three that are identical apart from the spacing between the tag and the cloning site, so between them they cover all three reading frames — pET-28a/b/c, pET-21a/b/c, pGEX-4T-1/2/3, pGEX-6P-1/2/3 and pBAD/His A/B/C are the sets the app knows about. If your insert will not go into one of them in frame, one of its siblings usually will.\n\nWhat the app can and cannot tell you: the Cloning Vector Library stores each vector's details — name, size, cloning sites and which of the three frames it uses — but not its sequence. So the app can point you at the siblings, but it cannot prove that any one of them will work.\n\nTo act on a suggestion, obtain that vector's sequence yourself and open it in Cloner 64, then select it and run the analysis again. With the real sequence in hand the frame check is exact, and the results will tell you whether it fits.\n\nThe \"reading frame 1, 2 or 3 of 3\" label simply distinguishes the siblings. Treat it as a label, not as a measurement of that vector."
         ),
         "predict.mcsRegion": (
-            "MCS Region",
-            "Optionally restrict the enzyme search to a specific region of the vector (e.g. the polylinker). Leave blank to search the entire vector."
+            "Positions",
+            "The stretch of the vector to search, usually the multiple cloning site (MCS). Type the start and end positions, or leave both blank to search the whole vector. When you choose a vector the app tries to fill them in from its MCS; click the small cross to clear them, or ‘Detect MCS’ to look again."
         ),
         "predict.betweenFeatures5": (
             "5′ Flanking Feature",
@@ -1119,8 +1175,8 @@ final class ContextHelpManager: ObservableObject {
             "Choose the feature downstream (3′) of the desired insertion point — typically a terminator. The analyser restricts the search to the span between the 5′ and 3′ features."
         ),
         "predict.multiSourceSearch": (
-            "Feature Name Search",
-            "Type a feature name (e.g. GFP, HIS5) to search across all open sequences. Every matching feature is treated as a candidate insert, letting you compare cloning routes from multiple sources in one analysis."
+            "Feature Name",
+            "Type the name of the feature you want as your insert (for example GFP or HIS5). Every open sequence except the vector is searched; close matches count too. The matches are listed below, and each is tried as the insert when you click Analyze All Matches."
         ),
         "predict.stratVerify": (
             "Verify Construct",
@@ -1131,8 +1187,8 @@ final class ContextHelpManager: ObservableObject {
             "An annotated Feature or Custom range usually stops just before the stop codon, so the insert on its own wouldn’t terminate translation. Turn this on to add the 3 bp stop codon at the 3′ end. It applies only to Feature and Custom inserts in Simple insertion or N-terminal fusion modes — ORF inserts already carry their own stop, and C-terminal or both-sides fusions need read-through into the vector tag, so the option is ignored for those."
         ),
         "predict.vectorTagFeature": (
-            "Vector Tag Feature",
-            "Select the tag coding feature on the vector that your insert will fuse to — for example a His-tag, GFP or MBP. Choosing it lets the app measure the exact distance from the tag’s annotated start to each candidate enzyme cut site in the vector, and use that distance to verify whether the reconstituted junction will be in-frame with the insert ORF.\n\nUse the N-terminal picker for a tag that sits before your insert (e.g. the N-terminal His-tag in pET-28), and the C-terminal picker for one that comes after. Leave it unset to enter the junction offsets by hand instead.\n\nThe frame check measures actual base counts from the DNA sequence rather than relying on coordinate arithmetic, so it works correctly even when the vector file is stored with the expressed strand as the bottom strand (as is common with .xdna files). A strategy is only shown as in-frame when the geometry is genuinely correct — if no direct-cloning strategy appears for your insert/vector combination, it means none of the available enzyme sites produce a clean in-frame junction, and a PCR-based approach (adding the correct enzyme tail to a primer) is the right route."
+            "Vector Tag",
+            "The tag on the vector that your insert will be fused to — for example a His-tag, GFP or GST. You choose it; the app does not guess. Which feature is the tag is a judgement about your experiment, and a wrong guess would quietly send the whole frame analysis down the wrong path.\n\nThe list shows every feature in the vector with its position, its strand, and — where the app can work it out from the cloning site — which end of the fusion protein it would sit on (‘adds tag to N-terminus (start) of insert’ or ‘… C-terminus (end)’). Use that label as a hint, not an answer: it depends on the cloning positions being filled in, and it can be wrong on unusual vector layouts.\n\nOnce you choose a tag, the reading frame at each junction is worked out automatically from the tag and your insert — you do not need to set any frame offsets. If your vector’s tag is not annotated as a feature, choose ‘Not specified’ and set the offsets manually instead.\n\nN-terminal tag sets the 5′ junction, C-terminal tag the 3′ junction. A Tag–Insert–Tag fusion needs both."
         ),
 
         // --- Shuttle Routes window ---
@@ -1454,21 +1510,32 @@ final class ContextHelpManager: ObservableObject {
     /// and from ContextMenuHelpBridge on menu highlight.
     func show(forKey key: String) {
         guard isEnabled else { return }
+        let newTitle: String
+        let newText: String
         if let entry = helpStrings[key] {
-            currentTitle = entry.title
-            currentText = entry.body
+            newTitle = entry.title
+            newText  = entry.body
         } else {
-            currentTitle = "No help available"
-            currentText = "(missing help entry for key: \(key))"
+            newTitle = "No help available"
+            newText  = "(missing help entry for key: \(key))"
         }
+        // Only publish when something actually changed. Hover events arrive in
+        // bursts and re-assigning the same string still fires objectWillChange,
+        // which costs a SwiftUI invalidation for nothing.
+        guard newTitle != currentTitle || newText != currentText else { return }
+        currentTitle = newTitle
+        currentText  = newText
         ContextHelpPanelController.shared.sizeToFit()
     }
 
     /// Reset the panel to the default idle message.
     func clear() {
         guard isEnabled else { return }
-        currentTitle = "Context Help"
-        currentText = "Hover the mouse over a button, tab, menu item, or control to see what it does."
+        let idleTitle = "Context Help"
+        let idleText  = "Hover the mouse over a button, tab, menu item, or control to see what it does."
+        guard currentTitle != idleTitle || currentText != idleText else { return }
+        currentTitle = idleTitle
+        currentText  = idleText
         ContextHelpPanelController.shared.sizeToFit()
     }
 }
