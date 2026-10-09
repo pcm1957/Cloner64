@@ -105,7 +105,26 @@ class SequenceMapRenderer {
     static let rulerColor        = NSColor(white: 0.45, alpha: 1.0)
     static let headerColor       = NSColor(white: 0.45, alpha: 1.0)
     static let translationColor  = NSColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1.0)
-    
+
+    /// Marks runs that are translated amino acids, so the search can find them
+    /// without having to recognise them by colour. Matching on colour was
+    /// fragile and in fact broken: the search compared against a different
+    /// colour from the one used here, so no residue was ever recognised and the
+    /// amino-acid search silently never ran.
+    /// The value is a bucket id naming the strand and frame the row belongs to:
+    /// "F0"/"F1"/"F2" for forward frames 1-3, "R0"/"R1"/"R2" for reverse frames.
+    /// The search needs this because a reverse frame is drawn left to right but
+    /// reads right to left, so searching it forwards found nothing while
+    /// searching every row backwards produced false hits on forward frames.
+    static let translationRunKey = NSAttributedString.Key("cloner64.translationRun")
+
+    /// Marks the top-strand (sense) and bottom-strand (antisense) base rows.
+    /// The search uses these to tell the two rows apart, so a hit on the bottom
+    /// strand is highlighted on the bottom-strand row rather than on the top one,
+    /// and so it can skip the spacer columns that codon mode inserts.
+    static let senseRunKey     = NSAttributedString.Key("cloner64.senseRun")
+    static let antisenseRunKey = NSAttributedString.Key("cloner64.antisenseRun")
+
     /// Feature colours come from imported files and are sometimes very pale
     /// (e.g. SnapGene pastels), which is unreadable as text on the white map.
     /// Darken any colour that is too light, keeping its hue, until it has
@@ -301,7 +320,18 @@ class SequenceMapRenderer {
             let t = settings.showAllSites
                 ? "Showing all restriction enzyme sites"
                 : "Showing restriction enzymes cutting maximum \(settings.maximumCut) time\(settings.maximumCut == 1 ? "" : "s")"
-            r.append(NSAttributedString(string: "\(t) [using built-in Restriction Enzyme Library]\n", attributes: a))
+            // Say which enzyme list the map was made from. This matters on a
+            // printed map: a map built from My Enzymes shows fewer sites than
+            // the full library, and someone reading the printout later has no
+            // other way to tell.
+            let source: String
+            if settings.useMyEnzymesOnly {
+                let n = RestrictionEnzymeDatabase.shared.myEnzymes.count
+                source = "using My Enzymes only \u{2014} \(n) enzyme\(n == 1 ? "" : "s") starred"
+            } else {
+                source = "using built-in Restriction Enzyme Library"
+            }
+            r.append(NSAttributedString(string: "\(t) [\(source)]\n", attributes: a))
         }
         // #9b: note highlighted particular sites
         if settings.useParticularSites && !settings.particularSites.isEmpty {
@@ -403,7 +433,8 @@ class SequenceMapRenderer {
         
         // --- 3. Sense Strand (colour-coded, original case) ---
         result.append(renderColouredStrand(chars: seqOriginal, colourMap: colourMap, lineStart: lineStart,
-                                           lineLength: lineLength, colMap: colMap, totalWidth: totalWidth, font: font))
+                                           lineLength: lineLength, colMap: colMap, totalWidth: totalWidth, font: font,
+                                           strandKey: Self.senseRunKey))
         if settings.showCoordinates {
             result.append(NSAttributedString(string: "   < \(lineEnd)",
                                              attributes: [.font: font, .foregroundColor: Self.rulerColor]))
@@ -426,7 +457,8 @@ class SequenceMapRenderer {
         // --- 5. Antisense Strand ---
         if settings.showReverseStrand {
             result.append(renderColouredStrand(chars: antisenseChars, colourMap: colourMap, lineStart: lineStart,
-                                               lineLength: lineLength, colMap: colMap, totalWidth: totalWidth, font: font))
+                                               lineLength: lineLength, colMap: colMap, totalWidth: totalWidth, font: font,
+                                               strandKey: Self.antisenseRunKey))
             result.append(nl(font))
         }
         
@@ -466,11 +498,12 @@ class SequenceMapRenderer {
     private func renderColouredStrand(
         chars: [Character], colourMap: [NSColor],
         lineStart: Int, lineLength: Int,
-        colMap: [Int], totalWidth: Int, font: NSFont
+        colMap: [Int], totalWidth: Int, font: NSFont,
+        strandKey: NSAttributedString.Key
     ) -> NSAttributedString {
-        
+
         let result = NSMutableAttributedString()
-        
+
         if totalWidth == lineLength {
             // No codon spacing — render in colour runs for efficiency
             var runStart = lineStart
@@ -480,7 +513,9 @@ class SequenceMapRenderer {
                 var runEnd = runStart + 1
                 while runEnd < lineEnd && colourMap[runEnd] == runColour { runEnd += 1 }
                 result.append(NSAttributedString(string: String(chars[runStart..<runEnd]),
-                                                 attributes: [.font: font, .foregroundColor: runColour]))
+                                                 attributes: [.font: font,
+                                                              .foregroundColor: runColour,
+                                                              strandKey: true]))
                 runStart = runEnd
             }
         } else {
@@ -497,7 +532,9 @@ class SequenceMapRenderer {
                 while runEnd < totalWidth && display[runEnd].1 == runColour { runEnd += 1 }
                 let text = String(display[runStart..<runEnd].map { $0.0 })
                 result.append(NSAttributedString(string: text,
-                                                 attributes: [.font: font, .foregroundColor: runColour]))
+                                                 attributes: [.font: font,
+                                                              .foregroundColor: runColour,
+                                                              strandKey: true]))
                 runStart = runEnd
             }
         }
@@ -519,10 +556,12 @@ class SequenceMapRenderer {
         
         guard let range = transRange else { return NSAttributedString(string: "\n", attributes: [.font: font]) }
         
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.translationColor]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font,
+                                                    .foregroundColor: Self.translationColor,
+                                                    Self.translationRunKey: "F\(frameOffset)"]
         var display = Array(repeating: Character(" "), count: totalWidth)
         let lineEnd = lineStart + lineLength
-        
+
         var cs = frameOffset
         while cs + 3 <= lineStart { cs += 3 }
         
@@ -562,10 +601,12 @@ class SequenceMapRenderer {
         
         guard let range = transRange else { return NSAttributedString(string: "\n", attributes: [.font: font]) }
         
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Self.translationColor]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font,
+                                                    .foregroundColor: Self.translationColor,
+                                                    Self.translationRunKey: "R\(frameOffset)"]
         var display = Array(repeating: Character(" "), count: totalWidth)
         let lineEnd = lineStart + lineLength
-        
+
         // Reverse complement position i corresponds to original position (seqLength - 1 - i)
         // Codons in revComp at positions: frameOffset, frameOffset+3, frameOffset+6, ...
         // The middle base of revComp codon starting at rc_pos is rc_pos + 1

@@ -8,6 +8,13 @@ import UniformTypeIdentifiers
 import AppKit
 import Combine
 
+// Open Recent diagnostics (debug builds only). Filter on [RECENT].
+func AppLogRECENT(_ m: String) {
+    #if DEBUG
+    print("[RECENT] \(m)")
+    #endif
+}
+
 extension Notification.Name {
     static let makeUppercase = Notification.Name("makeUppercase")
     static let makeLowercase = Notification.Name("makeLowercase")
@@ -20,10 +27,26 @@ extension Notification.Name {
     static let openSequenceWindowRequest = Notification.Name("openSequenceWindowRequest")
 }
 
+/// The Help-menu item that switches context help on and off.
+///
+/// Deliberately its own View: it observes ContextHelpManager, which republishes
+/// on every hover while context help is on. Observed from the App struct, that
+/// invalidated the whole body and SwiftUI rebuilt the entire main menu each
+/// time, making the menu bar visibly jump. Confined to this view, a republish
+/// redraws one menu item and the menu bar is left alone.
+private struct ContextHelpMenuItem: View {
+    @ObservedObject private var helpManager = ContextHelpManager.shared
+    var body: some View {
+        Button(helpManager.isEnabled ? "Turn Off Context Help" : "Turn On Context Help") {
+            helpManager.isEnabled.toggle()
+        }
+        .keyboardShortcut("?", modifiers: [.command, .shift])
+    }
+}
+
 @main
 struct Cloner64App: App {
     @StateObject private var sequenceManager = SequenceManager()
-    @ObservedObject private var helpManager = ContextHelpManager.shared
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     
     @FocusedValue(\.activeSequence) var activeSequence: DNASequence?
@@ -74,6 +97,21 @@ struct Cloner64App: App {
         
         // MARK: - Commands
         .commands {
+            // ── View Menu: suppress at source ──
+            // SwiftUI builds a top-level "View" menu from the .sidebar and
+            // .toolbar command groups. The app does not use either, and
+            // removeViewMenu() in AppDelegate used to strip the menu AFTER
+            // AppKit had already added it — so every time SwiftUI rebuilt the
+            // menu bar (which happens on focus changes, e.g. opening the
+            // Predictive Cloning window) the View menu appeared for a frame
+            // and was then removed, making the whole menu bar visibly jump as
+            // the remaining titles re-flowed. Replacing the groups with empty
+            // content stops the menu being created in the first place.
+            // removeViewMenu() stays as a backstop for the "Enter Full Screen"
+            // item AppKit can add on its own.
+            CommandGroup(replacing: .sidebar) { }
+            CommandGroup(replacing: .toolbar) { }
+
             // ── File Menu ──
             CommandGroup(replacing: .newItem) {
                 Menu("New") {
@@ -531,10 +569,7 @@ struct Cloner64App: App {
                     }
                 }
                 Divider()
-                Button(helpManager.isEnabled ? "Turn Off Context Help" : "Turn On Context Help") {
-                    helpManager.isEnabled.toggle()
-                }
-                .keyboardShortcut("?", modifiers: [.command, .shift])
+                ContextHelpMenuItem()
                 Divider()
                 Button("Welcome to Cloner 64") {
                     WelcomeWindowManager.shared.openWindow(sequenceManager: sequenceManager)
@@ -717,6 +752,43 @@ class SequenceWindowOpener: ObservableObject {
         }
     }
 
+    /// IDs we have already retried once, so a window that genuinely cannot be
+    /// opened does not loop forever.
+    private var retriedOpens: Set<UUID> = []
+
+    /// Checks that the notification backstop actually produced a window.
+    ///
+    /// The in-place adoption path has had verifyAdoption since September, but
+    /// the backstop path had no equivalent: it posted the notification and
+    /// assumed SwiftUI obliged. SwiftUI's openWindow(id:value:) can silently
+    /// do nothing, and when it did the file simply never opened — no window, no
+    /// error, nothing in the log. That is the intermittent "pick it from Open
+    /// Recent and nothing happens" fault. One retry with forceNew covers it.
+    func verifyOpened(of id: UUID) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self = self else { return }
+            let shown = NSApp.windows.contains {
+                $0.isVisible && DocumentWindowID.dnaID(of: $0) == id
+            }
+            if shown { self.retriedOpens.remove(id); return }
+            guard !self.retriedOpens.contains(id) else {
+                #if DEBUG
+                print("🪟 window for \(id) still did not open after a retry — giving up")
+                #endif
+                return
+            }
+            self.retriedOpens.insert(id)
+            #if DEBUG
+            print("🪟 backstop produced no window for \(id) — retrying with forceNew")
+            #endif
+            NotificationCenter.default.post(
+                name: .openSequenceWindowRequest,
+                object: nil,
+                userInfo: ["id": id, "forceNew": true]
+            )
+        }
+    }
+
     func clearAdoptedID(_ id: UUID) {
         adoptedInPlaceIDs.remove(id)
         if lastAdoptedID == id { lastAdoptedID = nil }
@@ -784,6 +856,7 @@ class SequenceWindowOpener: ObservableObject {
                 object: nil,
                 userInfo: ["id": id, "forceNew": force]
             )
+            self.verifyOpened(of: id)
         }
     }
 }
@@ -931,6 +1004,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// not just the File menu. This lets isTrackingAnyMenu reliably gate
     /// refreshNativeRecentFilesMenu() against mid-render mutations.
     private func installFileMenuDelegate() {
+        AppLogRECENT("installing menu delegates")
         guard let mainMenu = NSApp.mainMenu else { return }
         for item in mainMenu.items {
             item.submenu?.delegate = self
@@ -992,6 +1066,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // guard inside refreshNativeRecentFilesMenu() doesn't block this
         // intentional, pre-render update.
         if menu === NSApp.mainMenu?.items.first(where: { $0.title == "File" })?.submenu {
+            AppLogRECENT("File menu opening — refreshing Open Recent")
             refreshNativeRecentFilesMenu()
             applyExportMenuState(in: menu)
         }
@@ -1045,11 +1120,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Never mutate the menu item array while a menu is being tracked —
         // AppKit caches row heights at layout time and crashes if the count
         // changes between layout and display.
-        guard !isTrackingAnyMenu else { return }
+        guard !isTrackingAnyMenu else {
+            AppLogRECENT("refresh SKIPPED — a menu is being tracked"); return }
         guard let mainMenu = NSApp.mainMenu,
               let fileMenu = mainMenu.items.first(where: { $0.title == "File" })?.submenu,
               let recentItem = fileMenu.items.first(where: { $0.title == "Open Recent" })
-        else { return }
+        else {
+            AppLogRECENT("refresh SKIPPED — File menu or Open Recent item not found"); return }
 
         // Reuse the existing submenu and rebuild its contents in place rather
         // than assigning a brand-new NSMenu object. Swapping the whole submenu
@@ -1090,7 +1167,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     
     @objc private func openRecentNativeItem(_ sender: NSMenuItem) {
-        guard let url = sender.representedObject as? URL else { return }
+        guard let url = sender.representedObject as? URL else {
+            AppLogRECENT("click '\(sender.title)' but representedObject is not a URL (\(String(describing: sender.representedObject)))")
+            return
+        }
+        AppLogRECENT("click '\(sender.title)' -> \(url.lastPathComponent) exists=\(FileManager.default.fileExists(atPath: url.path)) manager=\(sequenceManager != nil)")
         sequenceManager?.openSequenceFromURL(url)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -1100,16 +1181,30 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshNativeRecentFilesMenu()
     }
     
+    /// Hides the View menu rather than removing it.
+    ///
+    /// This used to call removeItem(), and that set up a fight the app could
+    /// not win: removing the item posted didRemoveItem, whoever owns the menu
+    /// model put the View menu straight back, the didAddItem observer removed
+    /// it again, and round it went — add, remove, add, remove — with the menu
+    /// bar re-flowing on every pass. That is what the user saw as the bar
+    /// jumping, most visibly when a new window took focus.
+    ///
+    /// Setting isHidden leaves the item array untouched, so no notification is
+    /// posted, nothing re-adds the menu, and the loop never starts. A hidden
+    /// top-level item is not drawn in the menu bar, which is all that was ever
+    /// wanted. It is also safer than removeItem() around AppKit's cached menu
+    /// layout, which is what the Open Recent crash notes warn about.
     private func removeViewMenu() {
         guard let mainMenu = NSApp.mainMenu else { return }
         let standardViewItems = Set(["Enter Full Screen", "Show Toolbar", "Customize Toolbar..."])
         for item in mainMenu.items {
-            if item.title.lowercased() == "view" {
-                mainMenu.removeItem(item)
-            } else if let sub = item.submenu,
-                      sub.items.contains(where: { standardViewItems.contains($0.title) }) {
-                mainMenu.removeItem(item)
-            }
+            let isViewMenu = item.title.lowercased() == "view"
+                || (item.submenu?.items.contains { standardViewItems.contains($0.title) } ?? false)
+            // Only act when something actually changes, so this stays silent
+            // and free on the many times it is called with nothing to do.
+            guard isViewMenu, !item.isHidden else { continue }
+            item.isHidden = true
         }
     }
     

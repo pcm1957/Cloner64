@@ -12,13 +12,81 @@
 import SwiftUI
 import AppKit
 
+// MARK: - Search Summary
+
+/// What the last search found, broken down by strand and reading frame, so the
+/// toolbar can say WHERE the hits are. The highlight on its own cannot: a hit on
+/// the bottom strand and a hit in a reverse reading frame look much the same on
+/// screen, and a hit scrolled off the top of the window looks like no hit at all.
+struct SequenceMapSearchSummary: Equatable {
+    var query: String = ""
+    var topStrand: Int = 0
+    var bottomStrand: Int = 0
+    var forwardFrames: [Int: Int] = [:]   // frame 1-3 -> number of hits
+    var reverseFrames: [Int: Int] = [:]   // frame 1-3 -> number of hits
+
+    /// A palindromic site reads the same on both strands, so it is found twice
+    /// over - once per strand - at the same place. Reporting that as two hits
+    /// would imply two sites, so the pair is reported as one.
+    var isPalindromicDNA: Bool = false
+
+    /// How many of the six translation rows the map had drawn when the search
+    /// ran. The search can only look at what is on screen, and the Strand
+    /// control defaults to Forward, so a protein query can come up empty simply
+    /// because the frame it sits in was not being shown. A bare "No match"
+    /// would then be misleading, so the count decides which wording is used.
+    /// DNA is unaffected: both strands are covered either way.
+    var framesSearched: Int = 0
+
+    var hasQuery: Bool { !query.isEmpty }
+
+    var total: Int {
+        let strands = (isPalindromicDNA && topStrand == bottomStrand)
+            ? topStrand
+            : topStrand + bottomStrand
+        return strands
+            + forwardFrames.values.reduce(0, +)
+            + reverseFrames.values.reduce(0, +)
+    }
+
+    /// Plain-language summary for the toolbar, e.g.
+    ///   "2 on the top strand, 1 on the bottom strand"
+    ///   "1 site on both strands (palindromic)"
+    ///   "3 in forward frame 1, 1 in reverse frame 2"
+    var summaryText: String {
+        guard hasQuery else { return "" }
+        var parts: [String] = []
+
+        if isPalindromicDNA && topStrand > 0 && topStrand == bottomStrand {
+            parts.append("\(topStrand) \(topStrand == 1 ? "site" : "sites") on both strands (palindromic)")
+        } else {
+            if topStrand > 0    { parts.append("\(topStrand) on the top strand") }
+            if bottomStrand > 0 { parts.append("\(bottomStrand) on the bottom strand") }
+        }
+        for f in 1...3 {
+            if let n = forwardFrames[f], n > 0 { parts.append("\(n) in forward frame \(f)") }
+        }
+        for f in 1...3 {
+            if let n = reverseFrames[f], n > 0 { parts.append("\(n) in reverse frame \(f)") }
+        }
+        if parts.isEmpty {
+            return framesSearched < 6
+                ? "No match in the rows on display \u{2014} set Strand to Both and tick all three frames to search all six"
+                : "No match"
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
 // MARK: - NSTextView Wrapper  (#10: drag-select and copy works natively)
 
 struct SequenceMapTextView: NSViewRepresentable {
     let attributedString: NSAttributedString
     let font: NSFont
     let searchQuery: String
-    
+    /// Called on the main queue after each search with what was found.
+    let onSearchSummary: (SequenceMapSearchSummary) -> Void
+
     /// Compute reverse complement of a DNA string
     static func reverseComplement(_ seq: String) -> String {
         DNASequence.reverseComplementString(seq)
@@ -58,110 +126,160 @@ struct SequenceMapTextView: NSViewRepresentable {
         storage.endEditing()
         
         // Search highlighting
-        guard !searchQuery.isEmpty else { return }
-        let fullText = textView.string as NSString
-        var searchRange = NSRange(location: 0, length: fullText.length)
+        //
+        // The search works on the bases and residues the renderer actually drew,
+        // not on the rendered text. Searching the text looked simpler but lost or
+        // misplaced hits three ways:
+        //
+        //   * a query straddling a 100-base display line was invisible, because
+        //     coordinates, translations, the antisense row and the ruler sit in
+        //     between one sequence line and the next;
+        //   * codon mode inserts a space every three bases, so a plain DNA query
+        //     matched nothing at all;
+        //   * a bottom-strand hit was found by searching for the query's reverse
+        //     complement, which lit up the TOP strand row instead of the bottom one.
+        //
+        // Instead the renderer marks each kind of run (sense bases, antisense
+        // bases, and each translation frame on each strand). We rebuild one
+        // continuous string per run kind, remembering where every character came
+        // from, orient it 5'->3' (or N->C), and search that. One query entered
+        // 5'->3' therefore finds hits on either strand, across line breaks, and
+        // highlights the row the hit really belongs to.
+        let report = onSearchSummary
+        func finish(_ summary: SequenceMapSearchSummary) {
+            // Deferred: writing SwiftUI state from inside updateNSView is a
+            // modification during a view update, which SwiftUI complains about.
+            DispatchQueue.main.async { report(summary) }
+        }
+
+        guard !searchQuery.isEmpty else { finish(SequenceMapSearchSummary()); return }
+        let query = searchQuery.uppercased().filter { !$0.isWhitespace }
+        guard !query.isEmpty else { finish(SequenceMapSearchSummary()); return }
+
+        let storageRange = NSRange(location: 0, length: storage.length)
+        let ns = storage.string as NSString
         var firstMatch: NSRange?
-        
-        // 1) Plain text search (finds DNA sequences on the sense strand line)
-        while searchRange.location < fullText.length {
-            let found = fullText.range(of: searchQuery, options: .caseInsensitive, range: searchRange)
-            guard found.location != NSNotFound else { break }
-            storage.addAttribute(.backgroundColor, value: NSColor.systemRed.withAlphaComponent(0.35), range: found)
-            if firstMatch == nil { firstMatch = found }
-            searchRange.location = found.location + found.length
-            searchRange.length = fullText.length - searchRange.location
-        }
-        
-        // 1b) Reverse complement DNA search — finds the query on the antisense strand
-        //     (which is displayed 3'→5', so a reverse-strand sequence appears reversed)
-        let isDNA = searchQuery.count >= 2 && searchQuery.uppercased().allSatisfy({ "ACGTRYSWKMBDHVN".contains($0) })
-        if isDNA {
-            let rcQuery = Self.reverseComplement(searchQuery)
-            if rcQuery.uppercased() != searchQuery.uppercased() {  // skip palindromes — already found above
-                var rcRange = NSRange(location: 0, length: fullText.length)
-                while rcRange.location < fullText.length {
-                    let found = fullText.range(of: rcQuery, options: .caseInsensitive, range: rcRange)
-                    guard found.location != NSNotFound else { break }
-                    storage.addAttribute(.backgroundColor, value: NSColor.systemRed.withAlphaComponent(0.35), range: found)
-                    if firstMatch == nil { firstMatch = found }
-                    rcRange.location = found.location + found.length
-                    rcRange.length = fullText.length - rcRange.location
+
+        // A character the renderer drew, with where it sits in the text view.
+        typealias Mark = (char: Character, pos: Int)
+
+        // Collect the non-space characters carrying `key`, in document order.
+        // Indices are UTF-16 offsets so they can be used as NSRange locations.
+        func collect(_ key: NSAttributedString.Key) -> [Mark] {
+            var marks: [Mark] = []
+            storage.enumerateAttribute(key, in: storageRange, options: []) { value, range, _ in
+                guard value != nil else { return }
+                for i in 0..<range.length {
+                    let unit = ns.character(at: range.location + i)
+                    guard unit != 0x20, unit != 0x0A, unit != 0x09,
+                          let scalar = UnicodeScalar(unit) else { continue }
+                    marks.append((char: Character(scalar), pos: range.location + i))
                 }
             }
+            return marks
         }
-        
-        // 2) Amino acid search — translation lines have amino acids spaced out
-        //    (e.g. "M  A  S") so plain text search can't find "MAS".
-        //    Walk the attributed string, collect non-space chars from translation-
-        //    coloured runs on each line, and search the extracted amino acid string.
-        let translationColor = NSColor.labelColor.withAlphaComponent(0.7)
-        let query = searchQuery.uppercased()
-        let text = textView.string
-        let lines = text.components(separatedBy: "\n")
-        var lineOffset = 0
-        
-        for line in lines {
-            let lineLen = (line as NSString).length
-            
-            // Collect non-space characters that have the translation colour
-            var aaChars: [(char: Character, pos: Int)] = []
-            for i in 0..<lineLen {
-                let ch = (line as NSString).character(at: i)
-                guard ch != 0x20 && ch != 0x0A else { continue }  // skip spaces/newlines
-                // Check foreground colour
-                if let fg = storage.attribute(.foregroundColor, at: lineOffset + i, effectiveRange: nil) as? NSColor {
-                    // Compare in sRGB to avoid colorspace mismatches
-                    if let fgRGB = fg.usingColorSpace(.sRGB),
-                       let tRGB = translationColor.usingColorSpace(.sRGB),
-                       abs(fgRGB.redComponent - tRGB.redComponent) < 0.02 &&
-                       abs(fgRGB.greenComponent - tRGB.greenComponent) < 0.02 &&
-                       abs(fgRGB.blueComponent - tRGB.blueComponent) < 0.02 {
-                        if let scalar = UnicodeScalar(ch) {
-                            aaChars.append((char: Character(scalar), pos: lineOffset + i))
-                        }
-                    }
+
+        // Translation rows grouped by the renderer's bucket id ("F0", "R2", ...).
+        // Each bucket is one reading frame on one strand, accumulated across every
+        // display line, so a match may span a line break.
+        func collectTranslations() -> [String: [Mark]] {
+            var buckets: [String: [Mark]] = [:]
+            storage.enumerateAttribute(SequenceMapRenderer.translationRunKey,
+                                       in: storageRange, options: []) { value, range, _ in
+                guard let id = value as? String else { return }
+                for i in 0..<range.length {
+                    let unit = ns.character(at: range.location + i)
+                    guard unit != 0x20, unit != 0x0A, unit != 0x09,
+                          let scalar = UnicodeScalar(unit) else { continue }
+                    buckets[id, default: []].append((char: Character(scalar),
+                                                     pos: range.location + i))
                 }
             }
-            
-            // Search the extracted amino acid sequence for the query
-            if aaChars.count >= query.count {
-                let aaString = String(aaChars.map { $0.char }).uppercased()
-                
-                // Forward search (matches forward-strand translation)
-                var searchStart = aaString.startIndex
-                while let range = aaString.range(of: query, options: .caseInsensitive, range: searchStart..<aaString.endIndex) {
-                    let startIdx = aaString.distance(from: aaString.startIndex, to: range.lowerBound)
-                    let matchLen = aaString.distance(from: range.lowerBound, to: range.upperBound)
-                    for j in startIdx..<(startIdx + matchLen) {
-                        let charPos = aaChars[j].pos
-                        let highlightRange = NSRange(location: charPos, length: 1)
-                        storage.addAttribute(.backgroundColor, value: NSColor.systemRed.withAlphaComponent(0.35), range: highlightRange)
-                        if firstMatch == nil { firstMatch = highlightRange }
-                    }
-                    searchStart = range.upperBound
-                }
-                
-                // Reverse search (matches reverse-strand translation, which reads right-to-left)
-                let aaReversed = String(aaString.reversed())
-                let aaCharsReversed = Array(aaChars.reversed())
-                var revSearchStart = aaReversed.startIndex
-                while let range = aaReversed.range(of: query, options: .caseInsensitive, range: revSearchStart..<aaReversed.endIndex) {
-                    let startIdx = aaReversed.distance(from: aaReversed.startIndex, to: range.lowerBound)
-                    let matchLen = aaReversed.distance(from: range.lowerBound, to: range.upperBound)
-                    for j in startIdx..<(startIdx + matchLen) {
-                        let charPos = aaCharsReversed[j].pos
-                        let highlightRange = NSRange(location: charPos, length: 1)
-                        storage.addAttribute(.backgroundColor, value: NSColor.systemRed.withAlphaComponent(0.35), range: highlightRange)
-                        if firstMatch == nil { firstMatch = highlightRange }
-                    }
-                    revSearchStart = range.upperBound
-                }
-            }
-            
-            lineOffset += lineLen + 1  // +1 for the newline
+            return buckets
         }
-        
+
+        // Search one bucket and highlight every hit.
+        //
+        // `reversed` is for rows the renderer draws right to left: the bottom
+        // strand and the reverse reading frames both start at the right-hand end,
+        // so the bucket is flipped into 5'->3' (N->C) order before searching.
+        // Each bucket is searched in its own direction only, which is what stops a
+        // forward frame from matching a query backwards.
+        /// Returns the number of hits, for the toolbar count.
+        func highlight(_ marks: [Mark], reversed: Bool, find needle: String) -> Int {
+            guard marks.count >= needle.count else { return 0 }
+            let ordered = reversed ? Array(marks.reversed()) : marks
+            let text = String(ordered.map { $0.char })
+            var hits = 0
+            var from = text.startIndex
+            while let hit = text.range(of: needle, range: from..<text.endIndex) {
+                hits += 1
+                let lo = text.distance(from: text.startIndex, to: hit.lowerBound)
+                let hi = text.distance(from: text.startIndex, to: hit.upperBound)
+                for j in lo..<hi {
+                    let r = NSRange(location: ordered[j].pos, length: 1)
+                    storage.addAttribute(.backgroundColor,
+                                         value: NSColor.systemRed.withAlphaComponent(0.35),
+                                         range: r)
+                    if firstMatch == nil || r.location < firstMatch!.location {
+                        firstMatch = r
+                    }
+                }
+                // Advance one character, not past the whole match: overlapping
+                // occurrences are real sites. In a run of ten T's, TTTTTT occurs
+                // five times, and skipping to the end of each match would report
+                // one. Direct repeats do the same thing with longer queries.
+                from = text.index(after: hit.lowerBound)
+            }
+            return hits
+        }
+
+        // A query made only of base codes can also be looked for as the reverse
+        // complement; one made of other letters (a peptide) cannot.
+        let looksLikeDNA = query.count >= 2
+            && query.allSatisfy { "ACGTRYSWKMBDHVN".contains($0) }
+        let rcQuery = looksLikeDNA
+            ? DNASequence.reverseComplementString(query).uppercased()
+            : query
+
+        storage.beginEditing()
+
+        var summary = SequenceMapSearchSummary(query: searchQuery)
+        summary.isPalindromicDNA = looksLikeDNA && rcQuery == query
+
+        let sense     = collect(SequenceMapRenderer.senseRunKey)
+        let antisense = collect(SequenceMapRenderer.antisenseRunKey)
+
+        // Top strand, read left to right.
+        summary.topStrand = highlight(sense, reversed: false, find: query)
+
+        // Bottom strand. The antisense row prints each bottom-strand base under
+        // its partner, so read left to right it runs 3'->5'. Flipped, it is the
+        // bottom strand 5'->3' and a 5'->3' query matches it directly. A
+        // palindromic site matches on both rows, which is correct.
+        summary.bottomStrand = highlight(antisense, reversed: true, find: query)
+
+        // With "Show Reverse strand" switched off there is no bottom-strand row to
+        // light up, so fall back to marking the top strand wherever the bottom
+        // strand would have matched. Only worth doing for a DNA query.
+        if antisense.isEmpty, looksLikeDNA, rcQuery != query {
+            summary.bottomStrand = highlight(sense, reversed: false, find: rcQuery)
+        }
+
+        // Translations. "F<n>" rows read left to right, "R<n>" rows right to left.
+        let translationBuckets = collectTranslations()
+        summary.framesSearched = translationBuckets.count
+        for (id, marks) in translationBuckets {
+            let isReverse = id.hasPrefix("R")
+            let hits = highlight(marks, reversed: isReverse, find: query)
+            guard hits > 0, let offset = Int(id.dropFirst()) else { continue }
+            if isReverse { summary.reverseFrames[offset + 1] = hits }
+            else         { summary.forwardFrames[offset + 1] = hits }
+        }
+
+        storage.endEditing()
+        finish(summary)
+
         if let first = firstMatch {
             textView.scrollRangeToVisible(first)
             textView.showFindIndicator(for: first)
@@ -177,6 +295,7 @@ struct SequenceMapView: View {
     
     @StateObject private var settings = SequenceMapSettings()
     @State private var searchText: String = ""
+    @State private var searchSummary = SequenceMapSearchSummary()
     @State private var cutSites: [CutSite] = []
     @State private var isComputing: Bool = false
     @State private var showFeatureList: Bool = false
@@ -240,7 +359,12 @@ struct SequenceMapView: View {
         VStack(spacing: 0) {
             toolbarSection
             Divider()
-            
+
+            if searchSummary.hasQuery {
+                searchStatusBar
+                Divider()
+            }
+
             // #1: Collapsible feature list
             if showFeatureList {
                 featureListSection
@@ -254,7 +378,13 @@ struct SequenceMapView: View {
                 SequenceMapTextView(
                     attributedString: renderedMap,
                     font: settings.displayFont,
-                    searchQuery: searchText
+                    searchQuery: searchText,
+                    // Only write when the result actually changed. Without this
+                    // guard every search would invalidate the view, which would
+                    // re-run the search, which would write the state again.
+                    onSearchSummary: { found in
+                        if found != searchSummary { searchSummary = found }
+                    }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -262,7 +392,11 @@ struct SequenceMapView: View {
             Divider()
             footerSection
         }
-        .frame(minWidth: 850, minHeight: 500)
+        // Must agree with window.minSize in SequenceMapWindowManager below. These
+        // were 850 here, 820 for the opening window and 640 for the window's own
+        // minimum, so the window was born 30pt narrower than its content asked
+        // for and could be dragged narrower still.
+        .frame(minWidth: 1000, minHeight: 500)
         .onAppear {
             settings.translationTo = sequence.length
             computeCutSites()
@@ -431,8 +565,12 @@ struct SequenceMapView: View {
     private var featuresAndSearch: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
+                // fixedSize keeps the label on one line. Without it this is the
+                // first thing in the toolbar to wrap when space runs short,
+                // because every other control has an explicit width.
                 Toggle("Show Features", isOn: $settings.showFeatures)
                     .toggleStyle(.checkbox).font(.system(size: 12))
+                    .fixedSize()
                     .contextHelp("smap.showFeatures")
                 
                 Button(action: { withAnimation { showFeatureList.toggle() } }) {
@@ -458,8 +596,36 @@ struct SequenceMapView: View {
                     .frame(width: 150).font(.system(size: 12))
                     .onSubmit { settings.searchQuery = searchText }
             }
-
+            .contextHelp("smap.search")
         }
+    }
+
+    // MARK: - Search Status Bar
+
+    /// Where the hits are, on its own full-width row under the toolbar.
+    ///
+    /// This started life tucked under the search field, but the toolbar column
+    /// there is only as wide as the search box: a summary naming both strands and
+    /// two reading frames was either truncated or forced the column wider, which
+    /// squeezed "Show Features" until it wrapped. A full-width row has all the
+    /// space it needs and takes none from the toolbar.
+    private var searchStatusBar: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.caption)
+                .foregroundColor(searchSummary.total == 0 ? .red : .secondary)
+            Text(searchSummary.query)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundColor(.primary)
+            Text(searchSummary.summaryText)
+                .font(.system(size: 11))
+                .foregroundColor(searchSummary.total == 0 ? .red : .secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 3)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .contextHelp("smap.searchSummary")
     }
     
     // MARK: - Translation  (#6, #11, #13)
@@ -709,9 +875,11 @@ struct SequenceMapView: View {
             HStack(spacing: 6) {
                 Toggle("Do not show RE sites", isOn: $settings.doNotShowRESites)
                     .toggleStyle(.checkbox).font(.system(size: 12))
+                    .fixedSize()
                     .contextHelp("smap.doNotShowRESites")
                 Toggle("Show all sites", isOn: $settings.showAllSites)
                     .toggleStyle(.checkbox).font(.system(size: 12))
+                    .fixedSize()
                     .contextHelp("smap.showAllSites")
             }
             
@@ -748,6 +916,7 @@ struct SequenceMapView: View {
                     .font(.system(size: 12))
             }
             .toggleStyle(.checkbox)
+            .fixedSize()
             .disabled(enzymeDB.myEnzymeNames.isEmpty)
             .help(enzymeDB.myEnzymeNames.isEmpty
                   ? "No enzymes marked — use Tools → Restriction Enzyme List to star enzymes"
@@ -1053,7 +1222,7 @@ class SequenceMapWindowManager {
         let hostingController = NSHostingController(rootView: mapView)
         
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 820, height: 620),
+            contentRect: NSRect(x: 0, y: 0, width: 1150, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
@@ -1061,10 +1230,15 @@ class SequenceMapWindowManager {
         
         window.title = "Restriction Map of \(sequence.name)"
         window.contentViewController = hostingController
-        window.setFrameAutosaveName("RestrictionMapofsequencename")
+        // Set the minimum BEFORE restoring a saved frame, so a frame saved when
+        // the window was smaller gets widened rather than reopening too narrow.
+        window.minSize = NSSize(width: 1000, height: 500)   // matches the view's .frame(minWidth:)
+        // The autosave name carries a version. Bumping it discards the frame
+        // saved by earlier builds, which would otherwise reopen this window at
+        // the old 820pt width and squash the toolbar all over again.
+        window.setFrameAutosaveName("Cloner64.RestrictionMap.v2")
         if !window.setFrameUsingName(window.frameAutosaveName) { window.center() }
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 640, height: 400)
         window.makeKeyAndOrderFront(nil)
         
         windows.append(window)

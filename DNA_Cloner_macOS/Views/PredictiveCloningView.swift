@@ -36,13 +36,13 @@ enum InsertRegionMode: String, CaseIterable {
 }
 
 enum InsertionSiteMode: String, CaseIterable {
-    case anywhere = "Anywhere"
-    case betweenFeatures = "Between features"
+    case anywhere = "By position"
+    case betweenFeatures = "Between two features"
 }
 
 enum SourceMode: String, CaseIterable {
-    case single = "Single source"
-    case multiSource = "Multi-source scan"
+    case single = "One sequence"
+    case multiSource = "Find a feature by name"
 }
 
 enum InsertDirectionPreference: String, CaseIterable {
@@ -126,6 +126,13 @@ struct PredictiveCloningView: View {
     @State private var insertORFs: [DNASequence.ORFResult] = []
     @State private var selectedFusionORFID: UUID? = nil
     @State private var hasScannedFusionORFs = false
+    /// False when the feature chosen as the insert is NOT a clean reading
+    /// frame of its own (not a whole number of codons, or a stop part-way
+    /// through). The app then stops assuming the feature's own boundaries give
+    /// the frame and asks which ORF inside it to fuse.
+    @State private var featureFrameIsClean = true
+    /// When the insert is a chosen Feature, its reading frame is selected
+    /// automatically; this reveals the full list for picking a different one.
     // When the user picks a feature as the insert but it can't serve as a
     // clean fusion ORF (length not a multiple of 3, or an internal stop),
     // this explains why instead of silently showing "no ORFs found".
@@ -138,6 +145,8 @@ struct PredictiveCloningView: View {
     @State private var vectorTag3FeatureID: UUID? = nil
     // Tracks whether the current offsets were auto-predicted.
     @State private var offsetsArePredicted: Bool = false
+    /// Reveals the frame-offset pickers when the frame is already automatic.
+    @State private var showManualOffsets = false
 
     // --- Analysis state ---
     // True while runAnalysis / runMultiSourceAnalysis is running on a background thread.
@@ -203,6 +212,39 @@ struct PredictiveCloningView: View {
     var useSingleSource: Bool { sourceMode == .single || isFusionMode }
     var needs5Prime: Bool { cloningMode == .fusionNTerminal || cloningMode == .fusionBoth }
     var needs3Prime: Bool { cloningMode == .fusionCTerminal || cloningMode == .fusionBoth }
+    /// The stretch of the vector the user is cloning into: the Positions
+    /// boxes ("By position") or the gap between the two chosen features
+    /// ("Between two features"). Split in two if it wraps the origin.
+    var cloningSiteRanges: [ClosedRange<Int>] {
+        guard let v = selectedVector, v.length > 0 else { return [] }
+        let L = v.length
+        switch insertionSiteMode {
+        case .anywhere:
+            guard let s1 = Int(cloningRegionStart), let e1 = Int(cloningRegionEnd),
+                  s1 >= 1, e1 >= 1, s1 <= L, e1 <= L else { return [] }
+            let lo = s1 - 1, hi = e1 - 1
+            return lo <= hi ? [lo...hi] : [lo...(L - 1), 0...hi]
+        case .betweenFeatures:
+            guard let rng = betweenFeaturesRange else { return [] }
+            if rng.upperBound >= L {
+                return [rng.lowerBound...(L - 1), 0...(rng.upperBound - L)]
+            }
+            return [rng]
+        }
+    }
+
+    /// A feature that overlaps where the user is cloning can't sensibly be
+    /// protected — protecting it would rule out every enzyme that cuts there
+    /// (e.g. an annotated MCS, or lacZα running through the MCS of pUC19).
+    func overlapsCloningSite(_ region: ProtectableRegion) -> Bool {
+        guard let v = selectedVector else { return false }
+        let site = cloningSiteRanges
+        guard !site.isEmpty else { return false }
+        return region.protectedRanges(vectorLength: v.length).contains { r in
+            site.contains { $0.overlaps(r) }
+        }
+    }
+
     var protectedRanges: [ClosedRange<Int>] {
         guard let vector = selectedVector else { return [] }
         // In fusion mode, exclude any protectable region that overlaps a
@@ -243,7 +285,7 @@ struct PredictiveCloningView: View {
             return false
         }
         var ranges = protectableRegions
-            .filter { $0.isProtected && !(isFusionMode && overlapsAnyTag($0)) }
+            .filter { $0.isProtected && !overlapsCloningSite($0) && !(isFusionMode && overlapsAnyTag($0)) }
             .flatMap { $0.protectedRanges(vectorLength: vector.length) }
         if insertionSiteMode == .betweenFeatures {
             if let f = upstreamFeature {
@@ -257,7 +299,7 @@ struct PredictiveCloningView: View {
         }
         return ranges
     }
-    var protectedCount: Int { protectableRegions.filter { $0.isProtected }.count }
+    var protectedCount: Int { protectableRegions.filter { $0.isProtected && !overlapsCloningSite($0) }.count }
     
     var upstreamFeature: Feature? {
         guard let v = selectedVector, let id = upstreamFeatureID else { return nil }
@@ -374,62 +416,100 @@ struct PredictiveCloningView: View {
         let frameOffset: Int        // 0, 1, or 2
     }
 
-    /// After a fusion analysis, scan the library for vectors of the same category
-    /// whose fusionFrameOffset matches the insert ORF's reading frame requirement.
-    /// Works for both N-terminal (uses orfStartInExcerpt) and C-terminal
-    /// (uses orfEndInExcerpt) fusion modes.
+    /// Normalised comparison key for a vector name: lowercase, letters and
+    /// digits only. "pET-28c(+)" -> "pet28c".
+    nonisolated static func normalisedVectorKey(_ name: String) -> String {
+        name.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// Family key for a vector name — the normalised key with its trailing
+    /// variant designator stripped, so that the members of a frame-variant
+    /// series collapse to one key:
+    ///   "pet28a"/"pet28b"/"pet28c"   -> "pet28"
+    ///   "pgex4t1"/"pgex4t2"/"pgex4t3" -> "pgex4t"
+    ///   "pbadhisa"/"pbadhisb"        -> "pbadhis"
+    /// A trailing digit is only stripped when a letter precedes it, so names
+    /// whose number is part of the name itself ("puc19", "pbr322", "prs426")
+    /// are left alone and do not form bogus families.
+    nonisolated static func vectorFamilyKey(_ name: String) -> String {
+        let k = normalisedVectorKey(name)
+        guard k.count > 3, let last = k.last else { return k }
+        let rest = String(k.dropLast())
+        guard let prev = rest.last else { return k }
+        if last.isLetter { return rest }
+        if last.isNumber && prev.isLetter { return rest }
+        return k
+    }
+
+    /// After a fusion analysis that found no in-frame direct digest route,
+    /// suggest vectors whose tag sits in a DIFFERENT reading frame.
+    ///
+    /// Deliberately simple and honest about what the app knows. Library
+    /// entries hold metadata only — name, size, MCS list and a frame-offset
+    /// number — not the vector's sequence. So the app cannot prove that a
+    /// given alternative will work; it can only point at vectors designed to
+    /// cover the other reading frames (pET-28a/b/c being the classic set).
+    ///
+    /// The previous version claimed more than it could deliver: it compared
+    /// the ORF's start position within the padded insert excerpt (mod 3)
+    /// against the vector's stored offset. Those two numbers are not in the
+    /// same coordinate system, so the "match" was effectively arbitrary — and
+    /// in practice returned nothing at all.
     func computeAlternativeVectorSuggestions(
         orfStartInExcerpt: Int?,
         orfEndInExcerpt: Int?,
         currentVectorName: String
     ) -> [AlternativeVectorSuggestion] {
         guard isFusionMode else { return [] }
+
+        let currentKey    = Self.normalisedVectorKey(currentVectorName)
+        let currentFamily = Self.vectorFamilyKey(currentVectorName)
+        let currentOffset = matchedShuttleVector?.fusionFrameOffset
         let currentCategory = matchedShuttleVector?.category ?? .ecoliExpression
 
-        // For N-terminal: required frame = orfStart % 3
-        // For C-terminal: required frame = (orfEnd + 1) % 3
-        // (the base after the last coding base must be on a codon boundary in the vector)
-        // For both-sides: both must match — use the N-terminal frame as primary filter
-        let requiredFrame5: Int? = needs5Prime ? orfStartInExcerpt.map { $0 % 3 } : nil
-        let _ : Int? = needs3Prime  ? orfEndInExcerpt.map  { ($0 + 1) % 3 } : nil
+        let withOffset = vectorLibrary.vectors.filter {
+            $0.fusionFrameOffset != nil
+            && Self.normalisedVectorKey($0.name) != currentKey
+        }
 
-        return vectorLibrary.vectors
+        // Preferred: siblings in the same family (same tag, other frames).
+        var pool = withOffset.filter { Self.vectorFamilyKey($0.name) == currentFamily }
+        var sameFamily = true
+
+        // Fallback when the vector has no family siblings in the library:
+        // any same-category vector that offers a different frame.
+        if pool.isEmpty {
+            pool = withOffset.filter { $0.category == currentCategory }
+            sameFamily = false
+        }
+
+        // Where the current vector's own offset is known, a vector sharing it
+        // offers nothing new, so drop it.
+        if let co = currentOffset {
+            pool = pool.filter { $0.fusionFrameOffset != co }
+        }
+
+        // One representative per frame offset is enough to make the point.
+        var seenOffsets = Set<Int>()
+        let chosen = pool
+            .sorted { ($0.fusionFrameOffset ?? 0) < ($1.fusionFrameOffset ?? 0) }
             .filter { v in
                 guard let fo = v.fusionFrameOffset else { return false }
-                guard v.category == currentCategory else { return false }
-                guard v.name.lowercased().filter({ $0.isLetter || $0.isNumber }) !=
-                      currentVectorName.lowercased().filter({ $0.isLetter || $0.isNumber })
-                else { return false }
-                // Match whichever junction(s) are relevant
-                if let f5 = requiredFrame5, fo != f5 { return false }
-                // C-terminal frame check: the vector's reading frame at the 3'
-                // junction must also be compatible. Since fusionFrameOffset currently
-                // encodes the N-terminal offset, we use the same value as a proxy
-                // for C-terminal too (they are related by vector design).
-                return true
+                if sameFamily { return true }          // show the whole family
+                return seenOffsets.insert(fo).inserted // otherwise one each
             }
-            .map { v in
-                let junctionDesc: String
-                if needs5Prime && needs3Prime {
-                    junctionDesc = "N- and C-terminal frame offsets"
-                } else if needs5Prime {
-                    junctionDesc = "N-terminal frame offset"
-                } else {
-                    junctionDesc = "C-terminal frame offset"
-                }
-                return AlternativeVectorSuggestion(
-                    vector: v,
-                    reason: "\(junctionDesc) \(v.fusionFrameOffset!) matches your insert ORF — direct digest cloning may be possible",
-                    frameOffset: v.fusionFrameOffset!
-                )
-            }
-            .sorted { a, b in
-                let aScore = a.vector.name.lowercased().filter { $0.isLetter || $0.isNumber }
-                    .commonPrefix(with: currentVectorName.lowercased().filter { $0.isLetter || $0.isNumber }).count
-                let bScore = b.vector.name.lowercased().filter { $0.isLetter || $0.isNumber }
-                    .commonPrefix(with: currentVectorName.lowercased().filter { $0.isLetter || $0.isNumber }).count
-                return aScore > bScore
-            }
+            .prefix(6)
+
+        return chosen.map { v in
+            let fo = v.fusionFrameOffset!
+            // Show the frame as 1/2/3 — the raw 0/1/2 offset is an internal
+            // index and means nothing to the user. The vector's own letter or
+            // number (pET-28b, pGEX-4T-2) is already in the name shown above.
+            let reason = sameFamily
+                ? "Same vector, reading frame \(fo + 1) of 3 — select it and re-run to check"
+                : "Reading frame \(fo + 1) of 3 — select it and re-run to check"
+            return AlternativeVectorSuggestion(vector: v, reason: reason, frameOffset: fo)
+        }
     }
 
     var vectorTagFeature: Feature? {
@@ -488,6 +568,17 @@ struct PredictiveCloningView: View {
         return isNTerminal
             ? "adds tag to N-terminus (start) of insert"
             : "adds tag to C-terminus (end) of insert"
+    }
+
+    /// True when the reading frame at every junction this fusion needs is
+    /// worked out by the app (a tag is chosen, or the junction is defined by a
+    /// "Between two features" boundary), so the offset pickers are optional.
+    var frameIsAutomatic: Bool {
+        let auto5 = !needs5Prime || vectorTagFeatureID != nil
+            || (insertionSiteMode == .betweenFeatures && upstreamFeatureID != nil)
+        let auto3 = !needs3Prime || vectorTag3FeatureID != nil
+            || (insertionSiteMode == .betweenFeatures && downstreamFeatureID != nil)
+        return auto5 && auto3
     }
 
     /// Calculates predicted junction frame offsets from the insert fusion ORF.
@@ -613,6 +704,15 @@ struct PredictiveCloningView: View {
     }
     
     /// Find all open sequences (except the vector) that contain a feature matching the search text
+    /// Button title in "Find a feature by name" mode, e.g. "Analyze All 3 Matches".
+    var multiSourceButtonTitle: String {
+        switch matchingSources.count {
+        case 0:  return "Analyze All Matches"
+        case 1:  return "Analyze 1 Match"
+        default: return "Analyze All \(matchingSources.count) Matches"
+        }
+    }
+
     var matchingSources: [(source: DNASequence, feature: Feature)] {
         guard !featureSearchText.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         let query = featureSearchText.lowercased().trimmingCharacters(in: .whitespaces)
@@ -643,32 +743,45 @@ struct PredictiveCloningView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                GroupBox("Vector") {
+                Text("Finds restriction-enzyme strategies for putting your insert into your vector, and ranks them. Choose a vector and an insert, set any options, then click Analyze Strategies.")
+                    .font(.callout).foregroundColor(.primary.opacity(0.7))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding([.horizontal, .top])
+                GroupBox("Step 1 — Where is it going? (vector)") {
                     VStack(alignment: .leading, spacing: 10) {
                         vectorPicker; libraryMatchSection
                         insertionSiteSection; if selectedVector != nil { protectedRegionsSection }
                     }.padding(8)
                 }.padding([.horizontal, .top])
                 
-                GroupBox("Insert") {
+                GroupBox("Step 2 — What are you putting in? (insert)") {
                     VStack(alignment: .leading, spacing: 10) {
                         // Source mode toggle — simple insertion only. Fusion cloning
                         // needs one defined insert, so the toggle is hidden and the
                         // source is forced single (see useSingleSource).
                         if !isFusionMode {
                             HStack {
-                                Text("Source mode:").frame(width: 110, alignment: .trailing)
+                                Text("Insert from:").frame(width: 110, alignment: .trailing)
                                 Picker("", selection: $sourceMode) {
                                     ForEach(SourceMode.allCases, id: \.self) { Text($0.rawValue) }
-                                }.pickerStyle(.segmented).frame(maxWidth: 280)
+                                }.pickerStyle(.segmented).frame(maxWidth: 360)
                                 .contextHelp("predict.sourceMode")
+                            }
+                            HStack {
+                                Text("").frame(width: 110)
+                                Text(sourceMode == .single
+                                     ? "Pick the sequence that contains your insert."
+                                     : "Type a feature name (e.g. GFP). Every open sequence except the vector is searched, and each matching feature is tried as the insert.")
+                                    .font(.callout).foregroundColor(.primary.opacity(0.65))
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         } else {
                             HStack {
-                                Text("Source mode:").frame(width: 110, alignment: .trailing)
+                                Text("Insert from:").frame(width: 110, alignment: .trailing)
                                 HStack(spacing: 6) {
                                     Image(systemName: "info.circle").foregroundColor(.primary.opacity(0.5)).font(.callout)
-                                    Text("Single source — fusion cloning uses one defined insert (multi-source scan is for simple insertion).")
+                                    Text("One sequence — fusion cloning needs a single defined insert. (Finding a feature by name is available for simple insertion.)")
                                         .font(.callout).foregroundColor(.primary.opacity(0.6))
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -684,22 +797,23 @@ struct PredictiveCloningView: View {
                     }.padding(8)
                 }.padding(.horizontal)
                 
-                GroupBox("Options") {
+                GroupBox("Step 3 — How should it join? (options)") {
                     VStack(alignment: .leading, spacing: 10) {
                         cloningModeSection
                         Divider()
-                        HStack(spacing: 16) {
+                        HStack(spacing: 8) {
                             Image(systemName: "star.fill").foregroundColor(.yellow).font(.callout)
-                            Toggle(isOn: $myEnzymesOnlyStrategies) {
-                                Text("My Enzymes only (strategies)").font(.callout)
+                            // One switch for both the strategy search and the
+                            // Verify digests (previously two separate tick boxes).
+                            Toggle(isOn: Binding(
+                                get: { myEnzymesOnlyStrategies },
+                                set: { myEnzymesOnlyStrategies = $0; myEnzymesOnlyVerify = $0 }
+                            )) {
+                                Text("Use only My Enzymes").font(.callout)
                             }
                             .toggleStyle(.checkbox)
-                            .help("Restrict strategy search to enzymes in your freezer stock")
-                            Toggle(isOn: $myEnzymesOnlyVerify) {
-                                Text("My Enzymes only (verify)").font(.callout)
-                            }
-                            .toggleStyle(.checkbox)
-                            .help("Use only freezer stock enzymes for construct verification digest")
+                            .help("Only use your starred enzymes (Tools → Restriction Enzyme List), both for finding strategies and for the Verify digests")
+                            .contextHelp("predict.myEnzymesOnly")
                         }
                         if myEnzymesOnlyStrategies && enzymeDB.myEnzymeNames.isEmpty {
                             Text("⚠ No enzymes starred — open the Enzyme List and star your freezer stock first.")
@@ -717,7 +831,7 @@ struct PredictiveCloningView: View {
                                 Text("Analyzing…")
                             }
                         } else {
-                            Label(useSingleSource ? "Analyze Strategies" : "Scan All Sources", systemImage: "wand.and.stars")
+                            Label(useSingleSource ? "Analyze Strategies" : multiSourceButtonTitle, systemImage: "wand.and.stars")
                         }
                     }
                     .buttonStyle(.borderedProminent)
@@ -753,7 +867,7 @@ struct PredictiveCloningView: View {
             Text(msg)
         }
         .alert(
-            "No strategies — diagnostic",
+            "No strategies found",
             isPresented: Binding(
                 get: { analysisDiagnostic != nil },
                 set: { if !$0 { analysisDiagnostic = nil } }
@@ -793,8 +907,8 @@ struct PredictiveCloningView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
-                        Text("Matched to \(matched.name)").font(.callout).fontWeight(.medium)
-                        Text("— shuttle routes available").font(.callout).foregroundColor(.primary.opacity(0.65))
+                        Text("\(matched.name) is in your Vector Library").font(.callout).fontWeight(.medium)
+                        Text("— its cloning sites are known, and shuttle routes can be searched").font(.callout).foregroundColor(.primary.opacity(0.65))
                     }
                 }.padding(8).background(Color.green.opacity(0.05)).cornerRadius(6)
             }
@@ -803,7 +917,7 @@ struct PredictiveCloningView: View {
                 Text("").frame(width: 110)
                 HStack(spacing: 6) {
                     Image(systemName: "questionmark.circle").foregroundColor(.primary.opacity(0.65))
-                    Text("No library match — using manual MCS or full enzyme scan").font(.callout).foregroundColor(.primary.opacity(0.65))
+                    Text("Not in your Vector Library — every enzyme site will be checked (or only those within the positions you set below)").font(.callout).foregroundColor(.primary.opacity(0.65))
                 }
             }
         }
@@ -812,16 +926,16 @@ struct PredictiveCloningView: View {
     @ViewBuilder var insertionSiteSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Insertion site:").frame(width: 110, alignment: .trailing)
+                Text("Insert into:").frame(width: 110, alignment: .trailing)
                 Picker("", selection: $insertionSiteMode) {
                     ForEach(InsertionSiteMode.allCases, id: \.self) { Text($0.rawValue) }
-                }.pickerStyle(.segmented).frame(maxWidth: 280)
+                }.pickerStyle(.segmented).frame(maxWidth: 320)
                 .contextHelp("predict.insertionSiteMode")
             }
             
             if insertionSiteMode == .anywhere {
                 HStack {
-                    Text("MCS region:").frame(width: 110, alignment: .trailing)
+                    Text("Positions:").frame(width: 110, alignment: .trailing)
                     TextField("Start", text: $cloningRegionStart).textFieldStyle(.roundedBorder).frame(width: 80)
                     Text("–"); TextField("End", text: $cloningRegionEnd).textFieldStyle(.roundedBorder).frame(width: 80)
                     if !mcsAutoDetected.isEmpty {
@@ -831,7 +945,12 @@ struct PredictiveCloningView: View {
                             Image(systemName: "xmark.circle.fill").foregroundColor(.primary.opacity(0.4))
                         }.buttonStyle(.plain).help("Clear auto-detected region")
                     } else {
-                        Text("(optional — editable)").foregroundColor(.primary.opacity(0.65)).font(.callout)
+                        Text("e.g. the MCS — leave blank to search the whole vector").foregroundColor(.primary.opacity(0.65)).font(.callout)
+                        if selectedVector != nil {
+                            Button("Detect MCS") { estimateMCSRegion() }
+                                .buttonStyle(.link).font(.callout)
+                                .help("Look for the vector’s multiple cloning site and fill in its positions")
+                        }
                     }
                 }
                 .contextHelp("predict.mcsRegion")
@@ -912,11 +1031,20 @@ struct PredictiveCloningView: View {
                 }
                 if showProtectedRegions {
                     ForEach($protectableRegions) { $region in
+                        let inSite = overlapsCloningSite(region)
                         HStack(spacing: 6) {
-                            Toggle("", isOn: $region.isProtected).toggleStyle(.checkbox).labelsHidden()
+                            Toggle("", isOn: inSite ? .constant(false) : $region.isProtected)
+                                .toggleStyle(.checkbox).labelsHidden()
+                                .disabled(inSite)
                             Text(region.name).font(.callout).fontWeight(.medium).frame(minWidth: 80, alignment: .leading)
+                                .foregroundColor(inSite ? .primary.opacity(0.45) : .primary)
                             Text(region.rangeDescription).font(.system(.callout, design: .monospaced)).foregroundColor(.primary.opacity(0.65))
-                            Text(region.source.rawValue).font(.callout).foregroundColor(.primary.opacity(0.65))
+                            if inSite {
+                                Text("overlaps where you’re cloning — not protected")
+                                    .font(.callout).foregroundColor(.primary.opacity(0.5)).italic()
+                            } else {
+                                Text(region.source.rawValue).font(.callout).foregroundColor(.primary.opacity(0.65))
+                            }
                             if region.source == .custom {
                                 Button(action: { protectableRegions.removeAll { $0.id == region.id } }) {
                                     Image(systemName: "xmark.circle.fill").font(.callout).foregroundColor(.primary.opacity(0.65))
@@ -951,7 +1079,7 @@ struct PredictiveCloningView: View {
     
     @ViewBuilder var sourcePicker: some View {
         HStack {
-            Text("Source sequence:").frame(width: 110, alignment: .trailing)
+            Text("Sequence:").frame(width: 110, alignment: .trailing)
             Picker("", selection: $selectedSourceID) {
                 Text("Choose…").tag(nil as UUID?)
                 ForEach(sequenceManager.sequences) { seq in Text(seq.name).tag(seq.id as UUID?) }
@@ -1032,15 +1160,18 @@ struct PredictiveCloningView: View {
                     if insertRegionMode == .orf, let orf = sourceORFs.first(where: { $0.id == selectedSourceORFID }) {
                         Text("Insert: \(region.name) — \(orf.size) bp ORF + flanking (\(displayLen) bp total)")
                             .font(.callout).foregroundColor(.green)
+                        fusionFrameConfirmation
                     } else if insertRegionMode == .feature,
                               let fid = selectedFeatureID,
                               let f = selectedSource?.features.first(where: { $0.id == fid }) {
+                        // Feature.end is exclusive (one past the last base), so no +1.
                         let coreSize = (f.start > f.end && selectedSource?.isCircular == true)
-                            ? (selectedSource!.length - f.start) + f.end + 1
-                            : abs(max(f.start, f.end) - min(f.start, f.end)) + 1
+                            ? (selectedSource!.length - f.start) + f.end
+                            : abs(max(f.start, f.end) - min(f.start, f.end))
                         let stopLabel = stopCodonExtension == 3 ? " + stop codon" : ""
                         Text("Insert: \(region.name) — \(coreSize) bp feature\(stopLabel) + flanking (\(displayLen) bp total)")
                             .font(.callout).foregroundColor(.green)
+                        fusionFrameConfirmation
                     } else {
                         Text("Insert: \(region.name) — \(displayLen) bp").font(.callout).foregroundColor(.green)
                     }
@@ -1074,7 +1205,6 @@ struct PredictiveCloningView: View {
                 TextField("e.g. B2, GFP, HIS5…", text: $featureSearchText)
                     .textFieldStyle(.roundedBorder).frame(maxWidth: 250)
                     .contextHelp("predict.multiSourceSearch")
-                Text("Searches all open sequences").font(.callout).foregroundColor(.primary.opacity(0.65))
             }
             
             if !featureSearchText.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -1128,12 +1258,21 @@ struct PredictiveCloningView: View {
                 }
                 .contextHelp("predict.cloningMode")
                 if isFusionMode {
-                    Text("“Tag” = an existing ORF in the vector (e.g. GFP in pCambia 1302). Labels read N → C: **(Tag–Insert)** puts the tag first in the fusion protein, **(Insert–Tag)** puts your insert first. Choose by where you want the tag in the final protein, not by where the cloning site sits on the vector.")
+                    Text("Tag = a coding sequence already in the vector (e.g. His, GFP). **Tag–Insert** puts it at the start of the protein, **Insert–Tag** at the end. Tag and insert must stay in the same reading frame.")
                         .font(.callout).foregroundColor(.primary.opacity(0.75))
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 520, alignment: .leading)
                 }
-                if isFusionMode { fusionORFPicker }
+                // The reading frame is only an open question when the insert
+                // region does not already define it. Choosing a feature or an
+                // ORF in Step 2 settles the frame and the strand, so asking
+                // again here was asking the same question twice. For those two
+                // modes the frame is selected automatically and confirmed
+                // beside the insert in Step 2 instead.
+                if isFusionMode && (insertRegionMode != .feature && insertRegionMode != .orf
+                                    || !featureFrameIsClean) {
+                    fusionORFPicker
+                }
 
                 // --- Vector tag feature pickers ---
                 // Show N-terminal tag picker when 5' junction is needed,
@@ -1144,7 +1283,7 @@ struct PredictiveCloningView: View {
                             // N-terminal tag picker (5' junction)
                             if needs5Prime {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "function").foregroundColor(.purple).font(.callout)
+                                    Image(systemName: "tag.fill").foregroundColor(.purple).font(.callout)
                                     Text("N-terminal tag:").font(.callout).fontWeight(.semibold).frame(width: 130, alignment: .trailing)
                                     Picker("", selection: $vectorTagFeatureID) {
                                         Text("Not specified").tag(nil as UUID?)
@@ -1168,7 +1307,7 @@ struct PredictiveCloningView: View {
                             // C-terminal tag picker (3' junction)
                             if needs3Prime {
                                 HStack(spacing: 8) {
-                                    Image(systemName: "function").foregroundColor(.indigo).font(.callout)
+                                    Image(systemName: "tag.fill").foregroundColor(.indigo).font(.callout)
                                     Text("C-terminal tag:").font(.callout).fontWeight(.semibold).frame(width: 130, alignment: .trailing)
                                     Picker("", selection: $vectorTag3FeatureID) {
                                         Text("Not specified").tag(nil as UUID?)
@@ -1189,18 +1328,22 @@ struct PredictiveCloningView: View {
                                     .contextHelp("predict.vectorTagFeature")
                                 }
                             }
-                            // Status line
-                            let anySelected = (needs5Prime && vectorTagFeatureID != nil) || (needs3Prime && vectorTag3FeatureID != nil)
-                            if anySelected {
-                                HStack(spacing: 6) {
-                                    Image(systemName: "wand.and.stars").foregroundColor(.purple).font(.system(size: 11))
-                                    Text("Frame offsets predicted from selected tag feature(s) and your insert ORF. You can still override them below.")
-                                        .font(.callout).foregroundColor(.primary.opacity(0.65))
-                                }
-                            } else {
+                            // Status line. The app no longer picks a tag for
+                            // the user: guessing which feature is "the tag"
+                            // from its position relative to the MCS is only a
+                            // guess, and a wrong one silently sets the whole
+                            // frame analysis off down the wrong path. The user
+                            // knows their vector; the app lists the features
+                            // with their coordinates, strand and which end of
+                            // the protein each would sit on, and waits.
+                            let needsStill = (needs5Prime && vectorTagFeatureID == nil)
+                                          || (needs3Prime && vectorTag3FeatureID == nil)
+                            if needsStill {
                                 HStack(spacing: 6) {
                                     Image(systemName: "info.circle").foregroundColor(.primary.opacity(0.4)).font(.system(size: 11))
-                                    Text("Select the tag feature(s) on the vector to auto-predict frame offsets, or set them manually below.")
+                                    Text(needs5Prime && needs3Prime
+                                         ? "Choose the tag at each end that your insert will be fused to."
+                                         : "Choose the tag your insert will be fused to.")
                                         .font(.callout).foregroundColor(.primary.opacity(0.5))
                                 }
                             }
@@ -1208,16 +1351,35 @@ struct PredictiveCloningView: View {
                     } label: { Text("") }
                 }
 
-                if needs5Prime {
-                    junctionBox(label: "5' junction:", vecOffset: $vector5Offset, insOffset: $insert5Offset,
-                                vecFirst: true, isPredicted: offsetsArePredicted && vectorTagFeatureID != nil)
-                }
-                if needs3Prime {
-                    junctionBox(label: "3' junction:", vecOffset: $vector3Offset, insOffset: $insert3Offset,
-                                vecFirst: false, isPredicted: offsetsArePredicted && vectorTag3FeatureID != nil)
-                }
                 if needs5Prime || needs3Prime {
-                    Text("Frame offset = bases between nearest codon boundary and cut site (usually 0)").font(.callout).foregroundColor(.primary.opacity(0.65))
+                    if frameIsAutomatic {
+                        // Frame is handled automatically — keep the pickers out
+                        // of the way, available for experts.
+                        // A non-zero vector offset switches the app's automatic
+                        // frame search off for that junction (the user's value wins).
+                        let manualInUse = (needs5Prime && vector5Offset != 0) || (needs3Prime && vector3Offset != 0)
+                        HStack(spacing: 6) {
+                            Image(systemName: manualInUse ? "hand.raised.fill" : "checkmark.circle.fill")
+                                .foregroundColor(manualInUse ? .orange : .green).font(.callout)
+                            Text(manualInUse
+                                 ? "Reading frame: using your manual offsets."
+                                 : "Reading frame: set automatically.")
+                                .font(.callout).foregroundColor(.primary.opacity(0.75))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        DisclosureGroup("Adjust frame offsets manually (advanced)", isExpanded: $showManualOffsets) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                frameOffsetBoxes
+                            }.padding(.top, 4)
+                        }
+                        .font(.callout)
+                    } else {
+                        Text("No tag chosen — choose one above, or set the frame offsets here (usually 0).")
+                            .font(.callout).foregroundColor(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 520, alignment: .leading)
+                        frameOffsetBoxes
+                    }
                 }
             }
         }
@@ -1245,6 +1407,20 @@ struct PredictiveCloningView: View {
         }
     }
     
+    /// The 5′/3′ junction offset pickers (only those this fusion needs).
+    @ViewBuilder var frameOffsetBoxes: some View {
+        if needs5Prime {
+            junctionBox(label: "5' junction:", vecOffset: $vector5Offset, insOffset: $insert5Offset,
+                        vecFirst: true, isPredicted: offsetsArePredicted && vectorTagFeatureID != nil)
+        }
+        if needs3Prime {
+            junctionBox(label: "3' junction:", vecOffset: $vector3Offset, insOffset: $insert3Offset,
+                        vecFirst: false, isPredicted: offsetsArePredicted && vectorTag3FeatureID != nil)
+        }
+        Text("Bases between the nearest codon boundary and the cut site.")
+            .font(.callout).foregroundColor(.primary.opacity(0.65))
+    }
+
     func junctionBox(label: String, vecOffset: Binding<Int>, insOffset: Binding<Int>,
                      vecFirst: Bool, isPredicted: Bool = false) -> some View {
         // Wrap bindings so that any manual edit clears the "predicted" badge.
@@ -1281,27 +1457,64 @@ struct PredictiveCloningView: View {
         .contextHelp("predict.frameOffset")
     }
     
+    /// One line under the Step 2 insert choice confirming the reading frame
+    /// that will be fused, and warning when the insert must be flipped. Shown
+    /// only in fusion modes, and only for feature/ORF inserts where the frame
+    /// follows from that choice — it replaces the second reading-frame picker
+    /// that used to appear in Step 3 and asked the same question again.
+    @ViewBuilder var fusionFrameConfirmation: some View {
+        if isFusionMode, insertRegionMode == .feature || insertRegionMode == .orf {
+            if !featureFrameIsClean {
+                // The feature's own boundaries are not a reading frame — most
+                // often because it was annotated from a cloning site rather
+                // than from the ATG. Say so, and send the user to the picker
+                // rather than quietly translating the wrong frame.
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "scissors")
+                        .foregroundColor(.blue).font(.callout)
+                    Text("This is a cloning fragment \u{2014} it runs from one restriction site to the other, so the coding sequence starts somewhere inside it rather than at its first base. The longest reading frame within the fragment has been selected; check it under Step 3 and change it if it is not the one you mean.")
+                        .font(.callout).foregroundColor(.primary.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .contextHelp("predict.fusionORF")
+            } else if let orf = selectedFusionORF {
+                HStack(spacing: 6) {
+                    Image(systemName: orf.isForward ? "arrow.right" : "arrow.uturn.backward")
+                        .foregroundColor(orf.isForward ? .green : .orange).font(.callout)
+                    Text(orf.isForward
+                         ? "Will be fused in its own reading frame, forward strand."
+                         : "Will be fused in its own reading frame — on the reverse strand, so the insert is reverse-complemented first.")
+                        .font(.callout)
+                        .foregroundColor(orf.isForward ? .primary.opacity(0.65) : .orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .contextHelp("predict.fusionORF")
+            } else if !hasScannedFusionORFs {
+                Text("Checking the reading frame…").font(.callout).foregroundColor(.primary.opacity(0.55))
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange).font(.system(size: 11))
+                    Text(fusionFeatureNote ?? "No reading frame could be read from this selection — check the feature's start, end and strand.")
+                        .font(.callout).foregroundColor(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .contextHelp("predict.fusionORF")
+            }
+        }
+    }
+
     @ViewBuilder var fusionORFPicker: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 6) {
-                // If the user already picked a specific ORF as the insert region,
-                // show a confirmation line instead of a redundant second picker.
-                if insertRegionMode == .orf, let orf = selectedFusionORF {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill").foregroundColor(.green).font(.callout)
-                        Text("Fusing your selected ORF:").font(.callout).fontWeight(.semibold)
-                        Text("\(orf.label) (\(orf.strand))").font(.callout).foregroundColor(.green)
-                    }
-                    HStack(spacing: 8) {
-                        if !orf.isForward {
-                            Image(systemName: "arrow.uturn.backward").foregroundColor(.orange).font(.callout)
-                            Text("Reverse strand — insert will be RC'd before fusion").font(.callout).foregroundColor(.orange)
-                        } else {
-                            Image(systemName: "arrow.right").foregroundColor(.green).font(.callout)
-                            Text("Forward strand — insert used as-is").font(.callout).foregroundColor(.primary.opacity(0.65))
-                        }
-                    }
-                } else {
+                // Shown for whole-sequence and custom-position inserts, where the
+                // frame is genuinely an open question, and for a feature insert
+                // whose own boundaries turned out not to be a reading frame.
+                if !featureFrameIsClean {
+                    Text("Reading frames found inside your fragment. The longest is selected \u{2014} change it if the protein you mean to fuse is a different one. The amino-acid count is the best guide.")
+                        .font(.caption).foregroundColor(.primary.opacity(0.65))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Group {
                     HStack {
                         Text("Reading frame to fuse:").font(.callout).fontWeight(.semibold)
                         if currentInsertRegion == nil {
@@ -1321,7 +1534,7 @@ struct PredictiveCloningView: View {
                     }
                     // Brief inline explainer: clarifies that this step is about the
                     // reading frame, not re-choosing the insert DNA.
-                    Text("Which reading frame inside your insert lines up with the vector’s tag — a region can hold more than one.")
+                    Text("The reading frame in your insert to join to the tag.")
                         .font(.caption).foregroundColor(.primary.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                     // Require ORF selection before analysis — without it the fusion
@@ -1329,7 +1542,7 @@ struct PredictiveCloningView: View {
                     if hasScannedFusionORFs && !insertORFs.isEmpty && selectedFusionORFID == nil {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange).font(.system(size: 11))
-                            Text("Select the reading frame to fuse before running the analysis — required to validate in-frame fusion strategies.")
+                            Text("Choose the reading frame to fuse before analysing.")
                                 .font(.callout).foregroundColor(.orange)
                         }
                     }
@@ -1337,7 +1550,7 @@ struct PredictiveCloningView: View {
                         HStack(spacing: 8) {
                             if !orf.isForward {
                                 Image(systemName: "arrow.uturn.backward").foregroundColor(.orange).font(.callout)
-                                Text("Reverse strand — insert will be RC'd").font(.callout).foregroundColor(.orange)
+                                Text("Reverse strand — insert will be reverse-complemented").font(.callout).foregroundColor(.orange)
                             } else {
                                 Image(systemName: "arrow.right").foregroundColor(.green).font(.callout)
                                 Text("Forward strand — insert used as-is").font(.callout).foregroundColor(.primary.opacity(0.65))
@@ -1614,14 +1827,57 @@ struct PredictiveCloningView: View {
             .flatMap { fid in src.features.first(where: { $0.id == fid })?.name }
         DispatchQueue.global(qos: .userInitiated).async {
             let scannerORFs = DNASequence.findORFs(in: insertSeq, minNucleotides: 100)
-            let (featureORFs, forcedIncluded) = self.featureDerivedORFs(in: src, region: region,
+            let (featureORFs, forcedORFID, forcedIsClean) = self.featureDerivedORFs(in: src, region: region,
                                                       excerptSeq: insertSeq,
                                                       forcedFeatureID: forcedFeatureID)
-            let combined   = self.mergeFusionORFCandidates(features: featureORFs, scanner: scannerORFs)
+            let forcedIncluded = forcedORFID != nil
+            // mergeFusionORFCandidates drops any scanned ORF that substantially
+            // overlaps a feature-derived one, on the grounds that the annotated
+            // name is more use than "171 aa ORF". That is right when the feature
+            // IS a reading frame — and exactly wrong when it is not, because the
+            // real ORF inside the feature is then the thing being suppressed by
+            // the broken entry sitting on top of it. So an unclean forced
+            // feature is kept out of the dedup set, and re-appended afterwards
+            // so the user can still pick it if they really mean to.
+            let dedupFeatures = forcedIsClean
+                ? featureORFs
+                : featureORFs.filter { $0.id != forcedORFID }
+            var combined = self.mergeFusionORFCandidates(features: dedupFeatures, scanner: scannerORFs)
+            if !forcedIsClean, let fid = forcedORFID,
+               let broken = featureORFs.first(where: { $0.id == fid }) {
+                combined.append(broken)
+            }
             DispatchQueue.main.async {
                 self.insertORFs = combined
                 self.hasScannedFusionORFs = true
-                self.selectedFusionORFID = combined.count == 1 ? combined.first?.id : nil
+                // The feature the user chose as the insert is the reading frame
+                // to fuse — select it rather than asking again.
+                self.featureFrameIsClean = (forcedFeatureID == nil) || forcedIsClean
+                if let fid = forcedORFID, forcedIsClean {
+                    // The feature is a clean reading frame — use it, no question.
+                    self.selectedFusionORFID = fid
+                } else if let fid = forcedORFID,
+                          let frag = combined.first(where: { $0.id == fid }) {
+                    // Normal case for a cloning fragment: the feature runs from
+                    // one restriction site to the other, so its first base is a
+                    // cloning site rather than the first base of a codon. The
+                    // coding sequence starts somewhere inside it. Pick the
+                    // longest reading frame that lies within the fragment --
+                    // that is the gene being moved -- and leave the picker open
+                    // in case it is not the one meant.
+                    let fLo = frag.position - 1
+                    let fHi = fLo + frag.size
+                    let inside = combined.filter { o in
+                        guard o.id != fid else { return false }
+                        let oLo = o.position - 1
+                        let oHi = oLo + o.size
+                        let overlap = max(0, min(oHi, fHi) - max(oLo, fLo))
+                        return overlap > o.size / 2
+                    }
+                    self.selectedFusionORFID = inside.max(by: { $0.size < $1.size })?.id
+                } else {
+                    self.selectedFusionORFID = combined.count == 1 ? combined.first?.id : nil
+                }
                 if forcedFeatureID != nil, !forcedIncluded {
                     let nm = forcedFeatureName ?? "selected feature"
                     self.fusionFeatureNote = "The feature \u{201C}\(nm)\u{201D} couldn\u{2019}t be located within the extracted insert region \u{2014} its coordinates may be off. Check the feature start/end, or pick an ORF below instead."
@@ -1650,7 +1906,7 @@ struct PredictiveCloningView: View {
     /// the user may legitimately want translation to enter mid-protein.
     /// Frame correctness is enforced by the fusion validity filter itself,
     /// not here.
-    private func featureDerivedORFs(in src: DNASequence, region: InsertRegion, excerptSeq: String, forcedFeatureID: UUID? = nil) -> (orfs: [DNASequence.ORFResult], forcedIncluded: Bool) {
+    private func featureDerivedORFs(in src: DNASequence, region: InsertRegion, excerptSeq: String, forcedFeatureID: UUID? = nil) -> (orfs: [DNASequence.ORFResult], forcedORFID: UUID?, forcedIsClean: Bool) {
         let stops: Set<String> = ["TAA", "TAG", "TGA"]
         let excerptLen = excerptSeq.count
         let srcLen = src.length
@@ -1666,19 +1922,23 @@ struct PredictiveCloningView: View {
         let minAutoLength = 150   // ~50 aa
         let candidates = src.features.filter { f in
             if let forced = forcedFeatureID, f.id == forced { return true }
-            let len = max(f.start, f.end) - min(f.start, f.end) + 1
+            let len = max(f.start, f.end) - min(f.start, f.end)   // end is exclusive
             return len >= minAutoLength
         }
         
         var results: [DNASequence.ORFResult] = []
-        var forcedIncluded = false
+        var forcedORFID: UUID? = nil
+        // Whether the feature the user chose really is a reading frame: a whole
+        // number of codons with no stop part-way through. A feature annotated
+        // from a cloning site rather than from the ATG often is not.
+        var forcedIsClean = false
         let excerptUpper = excerptSeq.uppercased()
         
         for f in candidates {
             let isForced = (f.id == forcedFeatureID)
             let lo = min(f.start, f.end)
             let hi = max(f.start, f.end)
-            let length = hi - lo + 1
+            let length = hi - lo   // Feature.end is exclusive (one past the last base)
             guard length > 0 else { continue }
             let multipleOf3 = (length % 3 == 0)
             // Auto-detected candidates must be clean reading frames. A feature the
@@ -1693,7 +1953,7 @@ struct PredictiveCloningView: View {
                 excerptStart = (lo - region.start + srcLen) % srcLen
             } else {
                 // Linear: feature must lie fully within the excerpt window.
-                if lo < region.start || hi > region.end { continue }
+                if lo < region.start || hi - 1 > region.end { continue }
                 excerptStart = lo - region.start
             }
             
@@ -1727,23 +1987,27 @@ struct PredictiveCloningView: View {
             let frameNum  = isForward ? 1 : -1
             let lengthAA  = length / 3
             var warnings: [String] = []
-            if !multipleOf3 { warnings.append("length not ×3 — a junction offset will be needed") }
+            if !multipleOf3 { warnings.append("length is not a multiple of 3 — check the feature's start and end") }
             if internalStop { warnings.append("internal stop in reading frame — check boundaries/strand") }
             let warnSuffix = warnings.isEmpty ? "" : "  ⚠ " + warnings.joined(separator: "; ")
             let label     = "\(f.name) — annotated, \(lengthAA) aa\(warnSuffix)"
             
-            results.append(DNASequence.ORFResult(
+            let entry = DNASequence.ORFResult(
                 position: excerptStart + 1,   // ORFResult uses 1-based positions
                 size: length,
                 strand: strandStr,
                 label: label,
                 frame: frameNum,
                 protein: ""                   // not used by the fusion picker
-            ))
-            if isForced { forcedIncluded = true }
+            )
+            results.append(entry)
+            if isForced {
+                forcedORFID = entry.id
+                forcedIsClean = multipleOf3 && !internalStop
+            }
         }
         
-        return (results, forcedIncluded)
+        return (results, forcedORFID, forcedIsClean)
     }
     
     /// Merge feature-derived ORFs with scanner-detected ORFs, keeping the
@@ -1886,8 +2150,8 @@ struct PredictiveCloningView: View {
         } else if insertRegionMode == .feature, let fid = selectedFeatureID,
                   let f = source.features.first(where: { $0.id == fid }) {
             coreLen = (f.start > f.end && source.isCircular)
-                ? (source.length - f.start) + f.end + 1
-                : abs(max(f.start, f.end) - min(f.start, f.end)) + 1
+                ? (source.length - f.start) + f.end
+                : abs(max(f.start, f.end) - min(f.start, f.end))
         } else { coreLen = nil }
 
         // Unpadded insert region — the exact ORF/feature boundaries with no
@@ -1901,7 +2165,8 @@ struct PredictiveCloningView: View {
         } else if insertRegionMode == .feature, let fid = selectedFeatureID,
                   let f = source.features.first(where: { $0.id == fid }) {
             let lo = min(f.start, f.end)
-            let hi = min(source.length - 1, max(f.start, f.end) + stopCodonExtension)
+            // Feature.end is exclusive; InsertRegion.end is inclusive — hence the -1.
+            let hi = min(source.length - 1, max(f.start, f.end) - 1 + stopCodonExtension)
             coreInsertRegion = InsertRegion(start: lo, end: hi, name: f.name)
         } else if insertRegionMode == .custom,
                   let s = Int(customInsertStart), let e = Int(customInsertEnd), s >= 1 {
@@ -2370,14 +2635,122 @@ struct PredictiveCloningView: View {
 
             DispatchQueue.main.async {
                 self.isAnalyzing = false
-                self.strategies             = results
+
+                // Predicted fusion protein length, per strategy. Computed here
+                // rather than in the row so each construct is spliced once, and
+                // on the main thread because the vector is a MainActor model
+                // object. Only the N-terminal tag is used as the anchor: it is
+                // where translation starts, so it fixes the whole reading.
+                var scored = results
+                if isFusion, let tag5 = capturedTag5 {
+                    let tagStart = min(tag5.start, tag5.end)
+                    // Coordinate frames, stated explicitly because getting them
+                    // confused is what made reverse-strand inserts wrong:
+                    //
+                    //   effInsertSeq            — the insert as the fusion uses
+                    //                             it. Already reverse-complemented
+                    //                             when the chosen ORF is on the
+                    //                             reverse strand (wasReversed).
+                    //   fusionORFStartInExcerpt — the ORF start measured in
+                    //                             effInsertSeq's own coordinates.
+                    //
+                    // A strategy whose insertReversed matches wasReversed uses
+                    // effInsertSeq as-is, so the ORF start needs no conversion.
+                    // One that differs flips it once more, so both the sequence
+                    // and the ORF start have to be converted together.
+                    let orfSize = self.selectedFusionORF?.size ?? 0
+                    let flippedInsert = DNASequence.reverseComplementString(effInsertSeq).uppercased()
+                    for i in scored.indices {
+                        let seqForStrategy: String
+                        let orfStartForStrategy: Int?
+                        if scored[i].insertReversed == wasReversed {
+                            seqForStrategy = effInsertSeq
+                            orfStartForStrategy = fusionORFStartInExcerpt
+                        } else {
+                            seqForStrategy = flippedInsert
+                            orfStartForStrategy = fusionORFStartInExcerpt.map {
+                                effInsertSeq.count - ($0 + orfSize)
+                            }
+                        }
+                        scored[i].predictedFusionAA = self.analyzer.predictedFusionAA(
+                            strategy: scored[i],
+                            vectorSequence: vecSeq,
+                            vectorIsCircular: vecCircular,
+                            insertSequence: seqForStrategy,
+                            tagStartInVector: tagStart,
+                            sourceSequence: srcSeq,
+                            sourceIsCircular: srcCircular,
+                            orfStartInInsert: orfStartForStrategy
+                        )
+                    }
+                }
+
+                // ── Fusion sanity filters ──
+                // Both follow the rule the user set: anything in the list should
+                // give the construct. These are not preferences to weigh, they
+                // are strategies that cannot work.
+                if isFusion, let tag5 = capturedTag5 {
+                    let tagLo = min(tag5.start, tag5.end)
+                    let tagHi = max(tag5.start, tag5.end)
+                    let orfAA = (self.selectedFusionORF?.size ?? 0) / 3
+
+                    scored = scored.filter { s in
+                        // 1. The tag must survive. A directional strategy cuts
+                        //    the vector twice and discards what lies between; if
+                        //    the tag is in there, the construct has no tag and
+                        //    there is no fusion protein at all. The existing
+                        //    frame filter never caught this because it exempts
+                        //    PCR routes, and because it checks the frame at the
+                        //    junction rather than whether the tag still exists.
+                        if s.isDirectional, let e3 = s.enzyme3 {
+                            let c5 = s.vectorSite5Position + s.enzyme5.cutPosition5Prime
+                            let c3 = s.vectorSite3Position + e3.cutPosition5Prime
+                            if c3 > c5, tagLo < c3, tagHi > c5 { return false }
+                        }
+                        // 2. The fusion protein must actually contain the insert
+                        //    ORF. If the predicted protein is shorter than the
+                        //    ORF being fused, translation stopped before or
+                        //    inside it, so the construct does not deliver it.
+                        if orfAA > 0, let aa = s.predictedFusionAA, aa < orfAA { return false }
+
+                        // 3. In a fusion, a strategy whose protein cannot be
+                        //    worked out at all is not something to offer. The
+                        //    whole claim being made about these rows is that
+                        //    they produce a fusion protein; if that cannot be
+                        //    shown, the claim is unsupported. This is stricter
+                        //    than "unknown is not wrong", and deliberately so —
+                        //    the rule is that everything listed should work.
+                        //
+                        //    The commonest reason for no prediction is the
+                        //    reversed orientation of a non-directional strategy,
+                        //    where the insert reads backwards relative to the
+                        //    tag and there is no fusion protein to find.
+                        // Now applies to reverse-strand ORFs too: the ORF
+                        // position is converted along with the flipped insert,
+                        // so "no prediction" once again means the construct
+                        // cannot be shown to make the protein.
+                        if s.predictedFusionAA == nil { return false }
+                        return true
+                    }
+                }
+
+                self.strategies             = scored
                 self.effectiveInsertSequence = effInsertSeq
                 self.effectiveInsertName    = effInsertName
                 self.insertWasReversed      = wasReversed
 
                 // Compute alternative vector suggestions when in fusion mode
                 // and no direct digest strategies survived the filter.
-                let directDigestResults = results.filter { $0.cloningPath.isDirectDigest }
+                // Only IN-FRAME direct digest routes count as a usable result
+                // here. Previously this counted every direct digest strategy,
+                // including out-of-frame ones — so a fusion that returned 56
+                // useless out-of-frame routes looked "solved" and the
+                // alternative-vector suggestions never appeared, which is
+                // exactly when they are most wanted.
+                let directDigestResults = scored.filter {
+                    $0.cloningPath.isDirectDigest
+                    && (!isFusion || ($0.frameAnalysis?.allInFrame ?? false))
+                }
                 if isFusion, directDigestResults.isEmpty {
                     self.alternativeVectorSuggestions = self.computeAlternativeVectorSuggestions(
                         orfStartInExcerpt: fusionORFStartInExcerpt,
@@ -2407,7 +2780,9 @@ struct PredictiveCloningView: View {
                 }
 
                 CloningStrategiesWindowManager.shared.openWindow(
-                    strategies: results,
+                    // `scored` is `results` plus the predicted fusion protein
+                    // length — the window must get that copy, not the original.
+                    strategies: scored,
                     vector: vector,
                     insertName: effInsertName,
                     insertSequence: effInsertSeq,
@@ -2706,8 +3081,31 @@ struct CloningStrategiesView: View {
     @State private var showOrientationDialog: Bool = false
     
     // --- Computed ---
-    var bluntInsertStrategies: [CloningStrategy] { strategies.filter { if case .bluntInsertDirect = $0.cloningPath { return true } else { return false } } }
-    var regularStrategies: [CloningStrategy] { strategies.filter { if case .bluntInsertDirect = $0.cloningPath { return false } else { return true } } }
+
+    /// True when this run was a tag fusion. Inferred from the strategies
+    /// themselves — only fusion runs carry a frame analysis — so the results
+    /// window does not need the cloning mode plumbed through to it.
+    var isFusionRun: Bool { strategies.contains { $0.frameAnalysis != nil } }
+
+    /// In a fusion, an out-of-frame junction does not give a worse fusion
+    /// protein — it gives no fusion protein. Such a strategy is not a trade-off
+    /// the user might accept, so it is not offered at all. Simple insertion
+    /// runs have no frame analysis and are never filtered.
+    func isUsableFusionStrategy(_ s: CloningStrategy) -> Bool {
+        guard isFusionRun, let fa = s.frameAnalysis else { return true }
+        return fa.allInFrame
+    }
+
+    /// How many strategies were withheld because they were out of frame.
+    /// Surfaced in the empty-state message so the user knows the analyzer did
+    /// find enzyme routes — they just would not have produced a fusion.
+    var outOfFrameHiddenCount: Int {
+        guard isFusionRun else { return 0 }
+        return strategies.filter { $0.frameAnalysis != nil && !$0.frameAnalysis!.allInFrame }.count
+    }
+
+    var bluntInsertStrategies: [CloningStrategy] { strategies.filter { if case .bluntInsertDirect = $0.cloningPath { return true } else { return false } }.filter(isUsableFusionStrategy) }
+    var regularStrategies: [CloningStrategy] { strategies.filter { if case .bluntInsertDirect = $0.cloningPath { return false } else { return true } }.filter(isUsableFusionStrategy) }
     /// All non-blunt strategies returned by the analyzer. Previously this
     /// filtered out any strategy whose insert contains internal cut sites for
     /// its chosen enzyme, which silently hid useful PCR strategies (the primer
@@ -2772,12 +3170,33 @@ struct CloningStrategiesView: View {
                 HStack {
                     Image(systemName: "arrow.right").foregroundColor(.blue)
                     Text("Direct Digest Strategies").font(.headline)
+                        .contextHelp("predict.frameBadge")
                     Text("(\(displayedStrategiesDirect.count) found)").font(.callout).foregroundColor(.primary.opacity(0.65))
                     Spacer()
                 }.padding(.horizontal).padding(.top, 8)
                 
                 if displayedStrategiesDirect.isEmpty {
-                    Text("No direct digest strategies found. See PCR strategies below if available.").font(.callout).foregroundColor(.primary.opacity(0.65)).padding(.horizontal)
+                    if isFusionRun && outOfFrameHiddenCount > 0 {
+                        // Be explicit: the analyzer DID find enzyme routes, but
+                        // none of them keep the tag and insert in the same
+                        // reading frame, so none would make a fusion protein.
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
+                                Text("No satisfactory enzyme solution for this fusion")
+                                    .font(.callout).fontWeight(.semibold)
+                            }
+                            Text("\(outOfFrameHiddenCount) cut-and-paste route\(outOfFrameHiddenCount == 1 ? " was" : "s were") found, but none join the tag and your insert in the same reading frame, so none would produce a fusion protein. They are not listed.")
+                                .font(.callout).foregroundColor(.primary.opacity(0.75))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text("Use a PCR strategy below — the primers can add the 1 or 2 extra bases needed to set the frame.")
+                                .font(.callout).foregroundColor(.primary.opacity(0.75))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(.horizontal)
+                    } else {
+                        Text("No direct digest strategies found. See PCR strategies below if available.").font(.callout).foregroundColor(.primary.opacity(0.65)).padding(.horizontal)
+                    }
                     // Alternative vector suggestions — shown in fusion mode when the
                     // insert's reading frame doesn't match the current vector but does
                     // match another vector in the library.
@@ -2786,9 +3205,10 @@ struct CloningStrategiesView: View {
                             VStack(alignment: .leading, spacing: 8) {
                                 HStack(spacing: 6) {
                                     Image(systemName: "lightbulb.fill").foregroundColor(.yellow)
-                                    Text("Alternative vectors for direct cloning").font(.callout).fontWeight(.semibold)
+                                    Text("Try a vector with the tag in another frame").font(.callout).fontWeight(.semibold)
+                                        .contextHelp("predict.alternativeVectors")
                                 }
-                                Text("The insert ORF reading frame does not align with \(vector.name) for direct restriction cloning. These library vectors have a compatible frame offset and may allow a direct digest strategy:")
+                                Text("These carry the same kind of tag but read it in a different frame, so one of them should put your insert in frame with no PCR. The app cannot check this for you — the library stores each vector's details but not its sequence. Open the sequence for one of these in Cloner 64, select it as the vector and run the analysis again:")
                                     .font(.callout).foregroundColor(.primary.opacity(0.75))
                                     .fixedSize(horizontal: false, vertical: true)
                                 ForEach(alternativeVectorSuggestions) { suggestion in
@@ -2834,6 +3254,22 @@ struct CloningStrategiesView: View {
             // Previously these were either hidden (when internalCutters was
             // non-empty) or awkwardly mixed with direct strategies. Split them
             // out so the user sees exactly which approach each strategy takes.
+            // Fusion run where EVERY route — digest and PCR alike — was out of
+            // frame. Say so plainly rather than showing two empty sections.
+            if isFusionRun && allPCRStrategies.isEmpty && displayedStrategiesDirect.isEmpty && outOfFrameHiddenCount > 0 {
+                Divider().padding(.vertical, 4)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.red)
+                        Text("No in-frame route found at all").font(.callout).fontWeight(.semibold)
+                    }
+                    Text("None of the \(outOfFrameHiddenCount) routes found keep the tag and your insert in the same reading frame. Check that the right reading frame is selected for your insert, try the other fusion direction, or try a vector whose tag sits in a different frame.")
+                        .font(.callout).foregroundColor(.primary.opacity(0.75))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal).padding(.bottom, 8)
+            }
+
             if !allPCRStrategies.isEmpty {
                 Divider().padding(.vertical, 4)
                 VStack(alignment: .leading, spacing: 8) {
@@ -2900,7 +3336,7 @@ struct CloningStrategiesView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(vector.name) is not in the shuttle vector library.")
                                 .font(.caption).bold()
-                            Text("MCS sites are auto-detected from this vector's features. For better support add it to ShuttleVectorLibrary (edit ShuttleVectorLibrary.swift and rebuild).")
+                            Text("Its cloning sites are worked out from the vector's annotated features. For better results, add it in Tools → Cloning Vector Library.")
                                 .font(.caption).foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -3482,9 +3918,18 @@ struct StrategyRow: View {
             // Badges wrap onto new lines as needed (BadgeFlowLayout, macOS 13+).
             BadgeFlowLayout(spacing: 6, lineSpacing: 4) {
                 badge(strategy.cloningPath.label, color: strategy.cloningPath.isDirectDigest ? .green : strategy.cloningPath.needsPrimers ? .blue : .teal)
-                if strategy.partialDigest != .none { badge(strategy.partialDigest.label, color: .orange) }
-                if strategy.usesCompatibleEnds { badge("Compatible ends", color: .cyan) }
-                if strategy.isDirectional { badge("Directional", color: .green) } else { badge("Non-directional", color: .orange) }
+                    .contextHelp("predict.badgePath")
+                if strategy.partialDigest != .none {
+                    badge(strategy.partialDigest.label, color: .orange).contextHelp("predict.badgePartial")
+                }
+                if strategy.usesCompatibleEnds {
+                    badge("Compatible ends", color: .cyan).contextHelp("predict.badgeCompatible")
+                }
+                if strategy.isDirectional {
+                    badge("Directional", color: .green).contextHelp("predict.badgeDirectional")
+                } else {
+                    badge("Non-directional", color: .orange).contextHelp("predict.badgeDirectional")
+                }
                 // Internal cutter warnings — distinguish between enzymes that
                 // actually cut the insert (real problem) vs vector-only enzymes
                 // whose sites happen to exist in the insert (informational).
@@ -3494,19 +3939,29 @@ struct StrategyRow: View {
                     ForEach(strategy.internalCutters, id: \.self) { cutter in
                         if insertEnzNames.contains(cutter) {
                             badge("⚠ \(cutter) cuts inside insert", color: .red)
+                                .contextHelp("predict.badgeInternalCutter")
+                                .help("\(cutter) also cuts within the insert, so a full digest would cut your fragment into pieces. Workarounds: a partial digest, timed so some molecules are cut only at the ends — doable, but fiddly and it needs careful gel work to pick the right band; choose a different enzyme pair; or remove the internal site by site-directed mutagenesis (a silent change if it falls in coding sequence).")
                         } else {
                             badge("\(cutter) in insert (vector-only enzyme)", color: .orange)
+                                .contextHelp("predict.badgeInternalCutter")
+                                .help("\(cutter) has a site in the insert, but this strategy only uses it on the vector, so the insert is not cut. Noted in case you use \(cutter) later for a diagnostic digest.")
                         }
                     }
                 }
                 if !strategy.isDirectional {
                     if strategy.insertReversed {
-                        badge("Insert: 3'→5'", color: .orange)
+                        badge("Insert reversed", color: .orange).contextHelp("predict.badgeOrientation")
                     } else {
-                        badge("Insert: 5'→3'", color: .teal)
+                        badge("Insert forward", color: .teal).contextHelp("predict.badgeOrientation")
                     }
-                } else if strategy.insertReversed { badge("Insert RC'd", color: .orange) }
-                if let fa = strategy.frameAnalysis, let label = fa.label { badge(label, color: fa.allInFrame ? .purple : .red) }
+                } else if strategy.insertReversed {
+                    badge("Insert reversed", color: .orange).contextHelp("predict.badgeOrientation")
+                }
+                if let fa = strategy.frameAnalysis, let label = fa.label {
+                    badge(label, color: fa.allInFrame ? .purple : .red)
+                        .contextHelp("predict.frameBadge")
+                        .help(fa.tooltip ?? "")
+                }
                 // Methylation badges — surfaced from warnings so no extra data needed
                 let methylWarnings = strategy.warnings.filter { w in
                     let wl = w.lowercased()
@@ -3517,17 +3972,45 @@ struct StrategyRow: View {
                     let isBlocked   = methylWarnings.contains { $0.lowercased().contains("blocked by") }
                     let badgeColor: Color = isBlocked ? .orange : .blue
                     let badgeText = isRequired ? "⚠ Needs methylation" : "⚠ Methylation blocked"
+                    let badgeHelp = isRequired
+                        ? "This enzyme only cuts when the site is methylated, so the plasmid must come from a normal dam+/dcm+ laboratory strain (DH5α, TOP10 and the like). DNA grown in a methylation-free host, or made by PCR, will not be cut."
+                        : "Dam or Dcm methylation of this site in a normal laboratory strain blocks the enzyme. Grow the plasmid in a methylation-free host (dam⁻/dcm⁻ strains such as JM110, SCS110 or ER2925) and prepare fresh DNA from it; the site is then unmethylated and cuts normally. Not a reason to discard the strategy — just an extra passage before you start."
                     badge(badgeText, color: badgeColor)
+                        .contextHelp("predict.badgeMethylation")
+                        .help(badgeHelp)
                 }
                 // Eat-in badges — surfaced from warnings into the header row
                 ForEach(strategy.warnings.filter { $0.hasPrefix("⚠eat-in:") }, id: \.self) { w in
                     badge(
                         "✂ " + w.replacingOccurrences(of: "⚠eat-in:", with: "").replacingOccurrences(of: " (penalty)", with: ""),
                         color: w.hasSuffix("(penalty)") ? .red : .orange                    )
+                        .contextHelp("predict.badgeEatIn")
                 }
-                Text("Score: \(strategy.score)").font(.callout).foregroundColor(.primary.opacity(0.65))
+                // Out-of-frame fusion strategies carry a large sorting penalty
+                // that can take the raw score negative. Show 0 rather than a
+                // meaningless negative number; the frame badge explains why.
+                // Number for anyone who wants the fine ordering, word for
+                // anyone who just wants a steer. The word describes COST —
+                // time, steps, reagents — see scoreLabel.
+                Text("Score: \(max(0, strategy.score)) · \(CloningStrategyAnalyzer.scoreLabel(strategy.score))")
+                    .font(.callout).foregroundColor(.primary.opacity(0.65))
+                    .help("Every strategy listed should give you the construct — that is taken as read. The score ranks what each one costs you to do it: time, hands-on steps, reagents and how much can go wrong along the way. Higher means less of all that. A direct digest is a cut and a ligation; a PCR route adds primers, amplification and sequencing to confirm. Points are added for directional cloning and unique sites, and taken off for internal cut sites, partial digests, methylation problems and other warnings.")
             }
             
+            // Predicted fusion protein — the number that matters in a fusion,
+            // and the one that makes a broken reading frame obvious at a glance.
+            if let aa = strategy.predictedFusionAA {
+                HStack(spacing: 5) {
+                    Image(systemName: "link").font(.callout)
+                        .foregroundColor(aa < 50 ? .orange : .purple)
+                    Text("Fusion protein: \(aa) aa")
+                        .font(.callout)
+                        .foregroundColor(aa < 50 ? .orange : .primary.opacity(0.8))
+                }
+                .help("Length of the protein this construct would make, counted from the tag's start codon to the first stop codon. A surprisingly short number means the insert is being read in the wrong frame, or a stop codon sits between the tag and your coding sequence.")
+                .contextHelp("predict.fusionProteinSize")
+            }
+
             // Fragment sizes
             HStack(spacing: 16) {
                 HStack(spacing: 4) {
@@ -3536,7 +4019,7 @@ struct StrategyRow: View {
                 }
                 if strategy.excisedSize > 0 {
                     HStack(spacing: 4) {
-                        Text("Stuffer:").font(.callout).foregroundColor(.primary.opacity(0.65))
+                        Text("Removed from vector:").font(.callout).foregroundColor(.primary.opacity(0.65))
                         Text(formatBP(strategy.excisedSize)).font(.system(.callout, design: .monospaced)).foregroundColor(.primary.opacity(0.65))
                     }
                 }
@@ -3563,9 +4046,22 @@ struct StrategyRow: View {
                 if let p = onDesignPrimers { Button(action: p) { Label("Primers", systemImage: "arrow.right.arrow.left") }.buttonStyle(.bordered).controlSize(.small).contextHelp("predict.stratPrimers") }
                 Button(action: onBuildConstruct) { Label("Build", systemImage: "hammer.fill") }.buttonStyle(.bordered).controlSize(.small).contextHelp("predict.stratBuild")
                 if let v = onVerify { Button(action: v) { Label("Verify", systemImage: "checkmark.shield") }.buttonStyle(.bordered).controlSize(.small).help("Suggest a restriction-digest strategy to verify recombinant clones.").contextHelp("predict.stratVerify") }
-                Button(action: viewProtocol) { Label("View", systemImage: "eye") }.buttonStyle(.bordered).controlSize(.small).contextHelp("predict.stratView")
-                Button(action: exportProtocol) { Label("Save", systemImage: "doc.text") }.buttonStyle(.bordered).controlSize(.small).contextHelp("predict.stratSave")
-                Button(action: printProtocol) { Label("Print", systemImage: "printer") }.buttonStyle(.bordered).controlSize(.small).contextHelp("predict.stratPrint")
+                // View / Save / Print are all "do something with the written
+                // protocol", and six buttons on every row of a long list is a
+                // wall of chrome. Folded into one menu, leaving Primers, Build
+                // and Verify — the three that actually do cloning work — as
+                // the visible actions.
+                Menu {
+                    Button(action: viewProtocol) { Label("View protocol", systemImage: "eye") }
+                    Button(action: exportProtocol) { Label("Save protocol…", systemImage: "doc.text") }
+                    Button(action: printProtocol) { Label("Print protocol…", systemImage: "printer") }
+                } label: {
+                    Label("Protocol", systemImage: "doc.plaintext")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .controlSize(.small)
+                .contextHelp("predict.stratView")
             }
             
             let bottomWarnings = strategy.warnings.filter { !$0.hasPrefix("⚠eat-in:") }
