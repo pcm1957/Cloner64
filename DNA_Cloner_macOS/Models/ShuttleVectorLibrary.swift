@@ -367,6 +367,23 @@ class ShuttleVectorLibrary: ObservableObject {
                           selectionMarker: "AmpR", notes: "T7 promoter, optional C-terminal His₆ tag",
                           isBuiltIn: true, fusionFrameOffset: 0),
             
+            // pET-21a/b/c are the same vector in the three reading frames —
+            // they differ only in the spacing between the polylinker and the
+            // tag, so the MCS site list and size are shared. The offsets below
+            // are assigned in letter order (a=0, b=1, c=2), which is the usual
+            // convention; the UI tells the user to try each rather than
+            // claiming which one fits, so the absolute numbering only has to
+            // be DISTINCT to do its job.
+            ShuttleVector(name: "pET-21b(+)", fullName: "pET-21b(+) (Novagen)", category: .ecoliExpression, size: 5443,
+                          mcsSites: ["NdeI", "BamHI", "EcoRI", "SacI", "SalI", "HindIII", "NotI", "XhoI"],
+                          selectionMarker: "AmpR", notes: "T7 promoter, optional C-terminal His₆ tag (frame variant of pET-21a)",
+                          isBuiltIn: true, fusionFrameOffset: 1),
+            
+            ShuttleVector(name: "pET-21c(+)", fullName: "pET-21c(+) (Novagen)", category: .ecoliExpression, size: 5443,
+                          mcsSites: ["NdeI", "BamHI", "EcoRI", "SacI", "SalI", "HindIII", "NotI", "XhoI"],
+                          selectionMarker: "AmpR", notes: "T7 promoter, optional C-terminal His₆ tag (frame variant of pET-21a)",
+                          isBuiltIn: true, fusionFrameOffset: 2),
+            
             ShuttleVector(name: "pET-32a(+)", fullName: "pET-32a(+) (Novagen)", category: .ecoliExpression, size: 5900,
                           mcsSites: ["NcoI", "BamHI", "EcoRI", "SacI", "SalI", "HindIII", "NotI", "XhoI"],
                           selectionMarker: "AmpR", notes: "T7 promoter, N-terminal thioredoxin + His₆ + S-tag + enterokinase",
@@ -377,10 +394,32 @@ class ShuttleVectorLibrary: ObservableObject {
                           selectionMarker: "AmpR", notes: "tac promoter, N-terminal GST tag, thrombin cleavage site",
                           isBuiltIn: true, fusionFrameOffset: 0),
             
+            // pGEX-4T-1/2/3 cover the three reading frames downstream of GST.
+            ShuttleVector(name: "pGEX-4T-2", fullName: "pGEX-4T-2 (Cytiva)", category: .ecoliExpression, size: 4969,
+                          mcsSites: ["BamHI", "EcoRI", "SmaI", "SalI", "XhoI", "NotI"],
+                          selectionMarker: "AmpR", notes: "tac promoter, N-terminal GST tag, thrombin cleavage site (frame variant of pGEX-4T-1)",
+                          isBuiltIn: true, fusionFrameOffset: 1),
+            
+            ShuttleVector(name: "pGEX-4T-3", fullName: "pGEX-4T-3 (Cytiva)", category: .ecoliExpression, size: 4969,
+                          mcsSites: ["BamHI", "EcoRI", "SmaI", "SalI", "XhoI", "NotI"],
+                          selectionMarker: "AmpR", notes: "tac promoter, N-terminal GST tag, thrombin cleavage site (frame variant of pGEX-4T-1)",
+                          isBuiltIn: true, fusionFrameOffset: 2),
+            
             ShuttleVector(name: "pGEX-6P-1", fullName: "pGEX-6P-1 (Cytiva)", category: .ecoliExpression, size: 4984,
                           mcsSites: ["BamHI", "EcoRI", "SmaI", "SalI", "XhoI", "NotI"],
                           selectionMarker: "AmpR", notes: "tac promoter, N-terminal GST tag, PreScission protease site",
                           isBuiltIn: true, fusionFrameOffset: 0),
+            
+            // pGEX-6P-1/2/3 cover the three reading frames downstream of GST.
+            ShuttleVector(name: "pGEX-6P-2", fullName: "pGEX-6P-2 (Cytiva)", category: .ecoliExpression, size: 4984,
+                          mcsSites: ["BamHI", "EcoRI", "SmaI", "SalI", "XhoI", "NotI"],
+                          selectionMarker: "AmpR", notes: "tac promoter, N-terminal GST tag, PreScission protease site (frame variant of pGEX-6P-1)",
+                          isBuiltIn: true, fusionFrameOffset: 1),
+            
+            ShuttleVector(name: "pGEX-6P-3", fullName: "pGEX-6P-3 (Cytiva)", category: .ecoliExpression, size: 4984,
+                          mcsSites: ["BamHI", "EcoRI", "SmaI", "SalI", "XhoI", "NotI"],
+                          selectionMarker: "AmpR", notes: "tac promoter, N-terminal GST tag, PreScission protease site (frame variant of pGEX-6P-1)",
+                          isBuiltIn: true, fusionFrameOffset: 2),
             
             ShuttleVector(name: "pMAL-c5X", fullName: "pMAL-c5X (NEB)", category: .ecoliExpression, size: 6721,
                           mcsSites: ["NdeI", "BamHI", "EcoRI", "SalI", "PstI", "HindIII"],
@@ -396,6 +435,17 @@ class ShuttleVectorLibrary: ObservableObject {
                           mcsSites: ["NcoI", "BglII", "EcoRI", "PmeI", "HindIII", "XhoI"],
                           selectionMarker: "AmpR", notes: "araBAD promoter (arabinose-inducible), N-terminal His₆",
                           isBuiltIn: true, fusionFrameOffset: 0),
+            
+            // pBAD/His A/B/C cover the three reading frames after the His tag.
+            ShuttleVector(name: "pBAD/His B", fullName: "pBAD/His B (Invitrogen)", category: .ecoliExpression, size: 4102,
+                          mcsSites: ["NcoI", "BglII", "EcoRI", "PmeI", "HindIII", "XhoI"],
+                          selectionMarker: "AmpR", notes: "araBAD promoter (arabinose-inducible), N-terminal His₆ (frame variant of pBAD/His A)",
+                          isBuiltIn: true, fusionFrameOffset: 1),
+            
+            ShuttleVector(name: "pBAD/His C", fullName: "pBAD/His C (Invitrogen)", category: .ecoliExpression, size: 4102,
+                          mcsSites: ["NcoI", "BglII", "EcoRI", "PmeI", "HindIII", "XhoI"],
+                          selectionMarker: "AmpR", notes: "araBAD promoter (arabinose-inducible), N-terminal His₆ (frame variant of pBAD/His A)",
+                          isBuiltIn: true, fusionFrameOffset: 2),
             
             ShuttleVector(name: "pCold I", fullName: "pCold I (Takara)", category: .ecoliExpression, size: 4408,
                           mcsSites: ["NdeI", "XhoI", "BamHI", "SalI", "PstI", "HindIII"],

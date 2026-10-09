@@ -173,16 +173,40 @@ struct FrameAnalysis {
         (fiveprimeInFrame ?? true) && (threeprimeInFrame ?? true)
     }
     
+    /// Badge text. Deliberately says "junction", not "insert" or "vector":
+    /// being in frame is a property of the JOIN between the two, not of
+    /// either sequence on its own. Users read "Out-of-frame (5')" as
+    /// "my insert is wrong", which it is not.
     var label: String? {
         switch (fiveprimeInFrame, threeprimeInFrame) {
-        case (.some(true), .some(true)):   return "In-frame (5' & 3')"
-        case (.some(true), nil):           return "In-frame (5')"
-        case (nil, .some(true)):           return "In-frame (3')"
-        case (.some(true), .some(false)):  return "In-frame (5') · Out-of-frame (3')"
-        case (.some(false), .some(true)):  return "Out-of-frame (5') · In-frame (3')"
-        case (.some(false), .some(false)): return "Out-of-frame"
-        case (.some(false), nil):          return "Out-of-frame (5')"
-        case (nil, .some(false)):          return "Out-of-frame (3')"
+        case (.some(true), .some(true)):   return "Both junctions in frame"
+        case (.some(true), nil):           return "5' junction in frame"
+        case (nil, .some(true)):           return "3' junction in frame"
+        case (.some(true), .some(false)):  return "5' junction in frame · 3' junction out of frame"
+        case (.some(false), .some(true)):  return "5' junction out of frame · 3' junction in frame"
+        case (.some(false), .some(false)): return "Both junctions out of frame"
+        case (.some(false), nil):          return "5' junction out of frame"
+        case (nil, .some(false)):          return "3' junction out of frame"
+        case (nil, nil):                   return nil
+        }
+    }
+
+    /// Tooltip spelling out what the badge means in plain language.
+    var tooltip: String? {
+        guard label != nil else { return nil }
+        let five  = "The 5' junction is where the N-terminal tag in the vector meets the start of your insert."
+        let three = "The 3' junction is where the end of your insert meets the C-terminal tag in the vector."
+        let ok    = "The codons run straight through, so the tag and your insert are read as one protein."
+        let bad   = "The codons do not line up across the join, so the tag and your insert would be read in different frames. Neither sequence is wrong in itself — it is the join that does not fit. A different enzyme, or a PCR strategy where 1 or 2 extra bases can be added in the primer, will usually fix it."
+        switch (fiveprimeInFrame, threeprimeInFrame) {
+        case (.some(true), nil):           return five + " " + ok
+        case (nil, .some(true)):           return three + " " + ok
+        case (.some(true), .some(true)):   return five + " " + three + " " + ok
+        case (.some(false), nil):          return five + " " + bad
+        case (nil, .some(false)):          return three + " " + bad
+        case (.some(false), .some(false)): return five + " " + three + " " + bad
+        case (.some(true), .some(false)):  return three + " " + bad
+        case (.some(false), .some(true)):  return five + " " + bad
         case (nil, nil):                   return nil
         }
     }
@@ -201,6 +225,12 @@ struct CloningStrategy: Identifiable {
     let frameAnalysis: FrameAnalysis?
     var warnings: [String]
     var score: Int
+    /// Length in amino acids of the fusion protein this strategy would give,
+    /// counted from the tag's start codon to the first stop. nil when it could
+    /// not be worked out with confidence (no tag, no start codon found, or the
+    /// tag falls in the piece of vector being removed) — a wrong number here
+    /// would be worse than none.
+    var predictedFusionAA: Int? = nil
     let vectorSite5Position: Int
     let vectorSite3Position: Int
     let insertReversed: Bool
@@ -710,6 +740,37 @@ class CloningStrategyAnalyzer {
         /// with the given 5' and 3' enzymes. Uses cut positions for accuracy.
         /// Returns insertLen as fallback if flanking positions can't be determined
         /// (e.g. PCR strategies where flanking sites don't exist).
+        // --- Orientation-aware fragment geometry ---
+        //
+        // When the insert is reversed before ligation, the 5'/3' flank labels are
+        // swapped above but the POSITIONS stay in forward source coordinates. So
+        // for a reversed insert the construct's 5' end is the HIGH forward
+        // coordinate and its 3' end is the LOW one. Anything that fills in a
+        // missing boundary, or measures the distance between two boundaries, has
+        // to respect that.
+        //
+        // Getting this wrong is what produced a 7 bp insert for a reversed
+        // fragment: the 5' end used the swapped site position (524, correct)
+        // while the missing 3' end fell back to insertRegion.end + 1 (532, the
+        // wrong end), leaving the 7 bases beyond the cut instead of the 525
+        // before it.
+        func missingFragmentBoundary(isFivePrime: Bool) -> Int {
+            let low  = insertRegion.start
+            let high = insertRegion.end + 1
+            if insertReversed { return isFivePrime ? high : low }
+            return isFivePrime ? low : high
+        }
+
+        func fragmentLength(cut5: Int, cut3: Int) -> Int {
+            if insertReversed {
+                if cut5 > cut3 { return cut5 - cut3 }
+                return sourceIsCircular ? (srcLen - cut3) + cut5 : -1
+            } else {
+                if cut3 > cut5 { return cut3 - cut5 }
+                return sourceIsCircular ? (srcLen - cut5) + cut3 : -1
+            }
+        }
+
         func actualFragmentSize(enz5Name: String, enz3Name: String,
                                 enz5: RestrictionEnzyme, enz3: RestrictionEnzyme) -> Int {
             guard let pos5 = flank5SourcePosition(enz5Name),
@@ -718,15 +779,7 @@ class CloningStrategyAnalyzer {
             }
             let cut5 = pos5 + enz5.cutPosition5Prime
             let cut3 = pos3 + enz3.cutPosition5Prime
-            let size: Int
-            if cut3 > cut5 {
-                size = cut3 - cut5
-            } else if sourceIsCircular {
-                // Fragment wraps origin: distance going forward from cut5 around to cut3
-                size = (srcLen - cut5) + cut3
-            } else {
-                return insertLen
-            }
+            let size = fragmentLength(cut5: cut5, cut3: cut3)
             return size > 0 ? size : insertLen
         }
         
@@ -1112,11 +1165,23 @@ class CloningStrategyAnalyzer {
                             if let m = m3 { warnings.append("3' end (\(e3.name)): \(m.enzymeDescription)") }
                             warnings.append("Original \(n5)/\(n3) site(s) not regenerated at the junctions")
                             warnings.append("Non-directional — insert can ligate in either orientation")
-                            if m5 == .fillIn || m3 == .fillIn {
-                                warnings.append("Fill-in keeps the overhang bases (a few bp added at that junction)")
+                            let oh5 = abs(e5.cutPosition5Prime - e5.cutPosition3Prime)
+                            let oh3 = abs(e3.cutPosition5Prime - e3.cutPosition3Prime)
+                            let fillBases   = (m5 == .fillIn ? oh5 : 0) + (m3 == .fillIn ? oh3 : 0)
+                            let nibbleBases = (m5 == .nibble ? oh5 : 0) + (m3 == .nibble ? oh3 : 0)
+                            if fillBases > 0 {
+                                warnings.append("Fill-in keeps the overhang bases (\(fillBases) bp added)")
                             }
-                            if m5 == .nibble || m3 == .nibble {
-                                warnings.append("Nibble-back removes the overhang bases (a few bp lost at that junction)")
+                            if nibbleBases > 0 {
+                                warnings.append("Nibble-back removes the overhang bases (\(nibbleBases) bp lost)")
+                            }
+                            // In a fusion, adding or removing bases at the junction
+                            // moves the reading frame. The two blunting variants of
+                            // the same enzyme pair therefore land in DIFFERENT frames,
+                            // which is why both are listed. Say so, or the near-
+                            // duplicate rows look like noise.
+                            if cloningMode != .simpleInsertion, fillBases > 0 || nibbleBases > 0 {
+                                warnings.append("Adding or removing bases here moves the reading frame — the fill-in and nibble-back versions of this enzyme pair land in different frames, so compare both rows")
                             }
                             if totalBvCuts > 1 { warnings.append("\(bvName) cuts \(totalBvCuts)× in full vector") }
                             warnings.append(contentsOf: contextMethylationWarnings(
@@ -1298,11 +1363,11 @@ class CloningStrategyAnalyzer {
                     let src3 = effective3flank ? flank3SourcePosition(eff3name) : nil
                     let enz5obj = iEnz5 ?? upEnz
                     let enz3obj = iEnz3 ?? dnEnz
-                    let cut5 = src5 != nil ? src5! + enz5obj.cutPosition5Prime : insertRegion.start
-                    let cut3 = src3 != nil ? src3! + enz3obj.cutPosition5Prime : (insertRegion.end + 1)
+                    let cut5 = src5 != nil ? src5! + enz5obj.cutPosition5Prime : missingFragmentBoundary(isFivePrime: true)
+                    let cut3 = src3 != nil ? src3! + enz3obj.cutPosition5Prime : missingFragmentBoundary(isFivePrime: false)
                     if src5 != nil { insCut5Src = cut5 }
                     if src3 != nil { insCut3Src = cut3 }
-                    let computed = cut3 > cut5 ? cut3 - cut5 : (sourceIsCircular ? (srcLen - cut5) + cut3 : -1)
+                    let computed = fragmentLength(cut5: cut5, cut3: cut3)
                     realInsertSize = computed > 0 ? computed : insertLen
                 }
                 score -= excessFlankPenalty(realInsertSize: realInsertSize)
@@ -1402,11 +1467,11 @@ class CloningStrategyAnalyzer {
                 let src3 = flank3SourcePosition(e3name)
                 let enzObj5 = iEnz5 ?? enzyme
                 let enzObj3 = iEnz3 ?? enzyme
-                let cut5 = src5 != nil ? src5! + enzObj5.cutPosition5Prime : insertRegion.start
-                let cut3 = src3 != nil ? src3! + enzObj3.cutPosition5Prime : (insertRegion.end + 1)
+                let cut5 = src5 != nil ? src5! + enzObj5.cutPosition5Prime : missingFragmentBoundary(isFivePrime: true)
+                let cut3 = src3 != nil ? src3! + enzObj3.cutPosition5Prime : missingFragmentBoundary(isFivePrime: false)
                 if src5 != nil { insCut5Src = cut5 }
                 if src3 != nil { insCut3Src = cut3 }
-                let computed = cut3 > cut5 ? cut3 - cut5 : (sourceIsCircular ? (srcLen - cut5) + cut3 : -1)
+                let computed = fragmentLength(cut5: cut5, cut3: cut3)
                 realInsertSize = computed > 0 ? computed : insertLen
             }
             score -= excessFlankPenalty(realInsertSize: realInsertSize)
@@ -1700,9 +1765,9 @@ class CloningStrategyAnalyzer {
                     let e5 = upEnz.name, e3 = dnEnz.name
                     let src5 = has5PrimeFlank(e5) ? flank5SourcePosition(e5) : nil
                     let src3 = has3PrimeFlank(e3) ? flank3SourcePosition(e3) : nil
-                    let cut5 = src5 != nil ? src5! + upEnz.cutPosition5Prime : insertRegion.start
-                    let cut3 = src3 != nil ? src3! + dnEnz.cutPosition5Prime : (insertRegion.end + 1)
-                    let computed = cut3 > cut5 ? cut3 - cut5 : (sourceIsCircular ? (srcLen - cut5) + cut3 : -1)
+                    let cut5 = src5 != nil ? src5! + upEnz.cutPosition5Prime : missingFragmentBoundary(isFivePrime: true)
+                    let cut3 = src3 != nil ? src3! + dnEnz.cutPosition5Prime : missingFragmentBoundary(isFivePrime: false)
+                    let computed = fragmentLength(cut5: cut5, cut3: cut3)
                     realInsertSize = computed > 0 ? computed : insertLen
                 }
                 score -= excessFlankPenalty(realInsertSize: realInsertSize)
@@ -1961,7 +2026,23 @@ class CloningStrategyAnalyzer {
             lastDiagnostic.append("  by cloning path: \(breakdown)")
         }
         
-        return strategies.sorted { $0.score > $1.score }
+        // --- Drop degenerate two-enzyme strategies ---
+        //
+        // Isoschizomers that cut the same recognition sequence at different
+        // offsets (ApaI GGGCC^C and Bsp120I G^GGCCC, for instance) can be paired
+        // by the search as if they were two separate sites. They are not: both
+        // land on the SAME site in the vector, four bases apart, and a single
+        // site cannot be cut twice to give a backbone with two ends. The giveaway
+        // is a "3' cut" that falls before the "5' cut".
+        //
+        // These were reaching the results as rows that quietly produced no
+        // construct. Removing them here is better than filtering downstream,
+        // because the strategy was never real.
+        let usable = strategies.filter { st in
+            guard st.enzyme3 != nil else { return true }   // single-cut: fine
+            return st.vectorSite5Position != st.vectorSite3Position
+        }
+        return usable.sorted { $0.score > $1.score }
     }
 
     // =========================================================================
@@ -2361,7 +2442,266 @@ class CloningStrategyAnalyzer {
             score -= codonsLost * 25
         }
 
+        // --- Fusion frame failure (fusion modes only) ---
+        // In a fusion, an out-of-frame junction is not a drawback to weigh up
+        // against convenience — it means the construct does not make the fusion
+        // protein at all. The old within-tier penalty of 6 points left a slick
+        // out-of-frame direct digest (score ~85-230) ranked above a working
+        // in-frame PCR strategy (20-50), which is exactly backwards for the job
+        // the user is trying to do. This penalty deliberately crosses every tier
+        // boundary so that ANY in-frame strategy outranks ANY out-of-frame one.
+        if isFusion, let fa = frameAnalysis, !fa.allInFrame {
+            score -= 250
+        }
+
         return score
+    }
+
+    // MARK: - Predicted fusion protein
+
+    /// The blunted insert fragment for a fill-in / nibble-back strategy, taken
+    /// from the SOURCE sequence at the boundaries the strategy recorded. Mirrors
+    /// bluntedInsertFragment in the strategy views, which is what Build uses, so
+    /// the predicted protein describes the construct Build would make.
+    nonisolated static func bluntedFragment(
+        insertCut5Source: Int?, insertCut3Source: Int?,
+        sourceSequence: String, sourceIsCircular: Bool, reversed: Bool
+    ) -> String? {
+        guard let left = insertCut5Source, let right = insertCut3Source else { return nil }
+        let src = Array(sourceSequence.uppercased())
+        let n = src.count
+        guard n > 0 else { return nil }
+        func norm(_ i: Int) -> Int { (((i % n) + n) % n) }
+        let forward: String
+        if right > left && left >= 0 && right <= n {
+            forward = String(src[left..<right])
+        } else if sourceIsCircular {
+            let l = norm(left); let r = norm(right)
+            forward = String(src[l..<n]) + String(src[0..<r])
+        } else {
+            return nil
+        }
+        guard !forward.isEmpty else { return nil }
+        return reversed ? String(forward.reversed().map { c -> Character in
+            switch c { case "A": return "T"; case "T": return "A"
+                       case "G": return "C"; case "C": return "G"
+                       default: return c }
+        }) : forward
+    }
+
+    /// Works out how long the fusion protein would be for one strategy.
+    ///
+    /// Uses the SAME splice arithmetic as buildConstruct — vector prefix up to
+    /// the 5' cut, then the insert, then the vector from the 3' cut on — so the
+    /// number describes the construct the Build button would actually make.
+    ///
+    /// Returns nil whenever the answer is not certain: no tag, the tag sits in
+    /// the stretch of vector being cut out, no start codon upstream of the tag,
+    /// or translation runs off the end without a stop. A missing number is
+    /// honest; a wrong one would send someone to the bench.
+    func predictedFusionAA(
+        strategy: CloningStrategy,
+        vectorSequence: String,
+        vectorIsCircular: Bool,
+        insertSequence: String,
+        tagStartInVector: Int,
+        sourceSequence: String = "",
+        sourceIsCircular: Bool = false,
+        orfStartInInsert: Int? = nil
+    ) -> Int? {
+        // Blunt-mediated strategies build from a separately derived blunted
+        // fragment rather than from the extracted insert region, so use the same
+        // fragment Build would use. Without it there is nothing to splice.
+        var insertSequence = insertSequence
+        // PCR routes: the fragment that gets ligated is the PCR product, which
+        // does not exist yet. The insert region handed to us carries ~200 bp of
+        // flanking sequence on each side so that nearby cut sites can be found —
+        // splicing all of that in would put 200 bases of untranslated flank
+        // between the tag and the coding sequence, which runs into a stop almost
+        // at once and predicts a fusion protein a few residues long. That is an
+        // artefact of the padding, not of the strategy.
+        //
+        // What the primer designer will actually do is put the forward primer at
+        // the start of the chosen reading frame, so model that: begin the insert
+        // at the ORF start. Reversed inserts are left out, because the ORF start
+        // is recorded in the forward frame and mapping it is a separate job.
+        if strategy.cloningPath.needsPrimers {
+            // A PCR route has no cut in the insert: the primer carries the
+            // restriction site, and after digestion the site is split between
+            // the two partners. The vector keeps the bases before its cut; the
+            // PCR product carries the rest. Leaving those out shifts the whole
+            // insert by up to two bases and translation stops just past the tag
+            // — which is what "33 aa" was.
+            //
+            // Verified against pET-28a + the PM19 fragment: vector + ORF alone
+            // gives 64 aa, while vector + the 5 bases of BamHI the product
+            // carries + ORF gives 205 aa, which is the tag, a GS from the site,
+            // and the 171 aa ORF.
+            // The caller is responsible for handing us an insert sequence and an
+            // ORF start that are in the SAME coordinate frame. It knows whether
+            // the whole insert was flipped for the fusion and whether this
+            // particular strategy flips it again, so it does the conversion.
+            guard let orfStart = orfStartInInsert else { return nil }
+            guard orfStart >= 0, orfStart < insertSequence.count else { return nil }
+
+            let iEnz = strategy.effectiveInsertEnzyme5
+            let siteRemainder = max(0, iEnz.recognitionSite.count - iEnz.cutPosition5Prime)
+            let carried = String(iEnz.recognitionSite.suffix(siteRemainder))
+
+            // Spare bases the primer adds to set the reading frame, when the
+            // junction does not come out in frame by itself. Zero when it does.
+            let pad = strategy.frameAnalysis?.fiveprimeAutoOffset ?? 0
+            let filler = String(repeating: "G", count: pad)
+
+            insertSequence = carried + filler + String(insertSequence.dropFirst(orfStart))
+        }
+        if case .bluntedInsert = strategy.cloningPath {
+            guard let frag = Self.bluntedFragment(
+                insertCut5Source: strategy.insertCut5Source,
+                insertCut3Source: strategy.insertCut3Source,
+                sourceSequence: sourceSequence,
+                sourceIsCircular: sourceIsCircular,
+                reversed: strategy.insertReversed)
+            else { return nil }
+            insertSequence = frag
+        }
+
+        let vectorSeq = vectorSequence.uppercased()
+        let vecLen = vectorSeq.count
+
+        // Same insert trimming as buildConstruct.
+        var insertSeq = insertSequence.uppercased()
+        let rawLen = insertSeq.count
+        let lo = strategy.insertTruncCut5 ?? 0
+        let hi = strategy.insertTruncCut3.map { min($0, rawLen) } ?? rawLen
+        if lo > 0 || hi < rawLen, lo < hi, hi <= insertSeq.count {
+            let a = insertSeq.index(insertSeq.startIndex, offsetBy: lo)
+            let b = insertSeq.index(insertSeq.startIndex, offsetBy: hi)
+            insertSeq = String(insertSeq[a..<b])
+        }
+
+        let cut5: Int
+        let cut3: Int
+        if strategy.isDirectional, let e3 = strategy.enzyme3 {
+            cut5 = strategy.vectorSite5Position + strategy.enzyme5.cutPosition5Prime
+            cut3 = strategy.vectorSite3Position + e3.cutPosition5Prime
+            if let e5x = strategy.insertCut5Excerpt, e5x > 0, e5x < insertSeq.count {
+                insertSeq = String(insertSeq.dropFirst(e5x))
+            }
+            if let e3x = strategy.insertCut3Excerpt, e3x > 0,
+               e3x - (strategy.insertCut5Excerpt ?? 0) > 0,
+               e3x - (strategy.insertCut5Excerpt ?? 0) <= insertSeq.count {
+                insertSeq = String(insertSeq.prefix(e3x - (strategy.insertCut5Excerpt ?? 0)))
+            }
+        } else {
+            cut5 = strategy.vectorSite5Position + strategy.enzyme5.cutPosition5Prime
+            cut3 = cut5
+        }
+        guard cut5 >= 0, cut3 >= cut5, cut3 <= vecLen else { return nil }
+
+        let constructSeq = String(vectorSeq.prefix(cut5)) + insertSeq + String(vectorSeq.suffix(vecLen - cut3))
+        let insertLen = insertSeq.count
+
+        // Where does the tag land in the construct?
+        let tagInConstruct: Int
+        if tagStartInVector < cut5 {
+            tagInConstruct = tagStartInVector          // upstream piece is untouched
+        } else if tagStartInVector >= cut3 {
+            tagInConstruct = tagStartInVector - (cut3 - cut5) + insertLen
+        } else {
+            return nil
+        }
+        guard tagInConstruct >= 0, tagInConstruct < constructSeq.count else { return nil }
+
+        guard let initiator = Self.fusionInitiator(in: constructSeq, tagStart: tagInConstruct) else { return nil }
+        return Self.aaUntilStop(in: constructSeq, from: initiator, wrapCircular: vectorIsCircular)
+    }
+
+
+    nonisolated static let stopCodons: Set<String> = ["TAA", "TAG", "TGA"]
+
+    /// Translates `seq` from `start` until the first stop codon and returns the
+    /// number of amino acids before it. Returns nil if no stop is reached, so a
+    /// run off the end of a linear sequence is reported as "unknown" rather than
+    /// as a length.
+    nonisolated static func aaUntilStop(in seq: String, from start: Int, wrapCircular: Bool) -> Int? {
+        let chars = Array(seq.uppercased())
+        guard start >= 0, start < chars.count else { return nil }
+        let limit = wrapCircular ? chars.count : chars.count - start
+        var i = start
+        var aa = 0
+        var consumed = 0
+        while consumed + 3 <= limit {
+            let idx = wrapCircular ? (i % chars.count) : i
+            guard idx + 3 <= chars.count || wrapCircular else { break }
+            let c0 = chars[idx % chars.count]
+            let c1 = chars[(idx + 1) % chars.count]
+            let c2 = chars[(idx + 2) % chars.count]
+            if stopCodons.contains(String([c0, c1, c2])) { return aa }
+            aa += 1
+            i += 3
+            consumed += 3
+        }
+        return nil
+    }
+
+    /// Finds the start codon that begins the tagged protein: the nearest ATG
+    /// upstream of the tag from which translation reaches the tag without
+    /// meeting a stop codon.
+    ///
+    /// Note what is NOT required: that the ATG be in the same reading frame as
+    /// the tag feature's annotated first base. A feature's boundaries are drawn
+    /// by whoever annotated the file and need not sit on a codon boundary — in
+    /// pET-28a the 6xHis feature begins 10 bases after the initiator, which is
+    /// not a multiple of three. Requiring the annotated frame made this search
+    /// step straight past the real start codon and find nothing at all. What
+    /// matters is that translation from the ATG runs into the tag uninterrupted,
+    /// so that is what is checked.
+    nonisolated static func fusionInitiator(in seq: String, tagStart: Int, maxLookback: Int = 400) -> Int? {
+        let chars = Array(seq.uppercased())
+        guard tagStart >= 0, tagStart < chars.count else { return nil }
+        let lowest = max(0, tagStart - maxLookback)
+        var i = tagStart
+        while i >= lowest {
+            if i + 3 <= chars.count, chars[i] == "A", chars[i + 1] == "T", chars[i + 2] == "G" {
+                // Translate forward from this ATG and make sure nothing stops
+                // it before it reaches the tag.
+                var j = i
+                var clean = true
+                while j + 3 <= tagStart {
+                    if stopCodons.contains(String([chars[j], chars[j + 1], chars[j + 2]])) {
+                        clean = false
+                        break
+                    }
+                    j += 3
+                }
+                if clean { return i }     // nearest one wins
+            }
+            i -= 1
+        }
+        return nil
+    }
+
+    /// A plain-language word for a strategy score.
+    ///
+    /// Every strategy that reaches the list is one that should work — anything
+    /// that would not give the intended construct is filtered out before this
+    /// point (out-of-frame fusion junctions, for instance). So the score is not
+    /// a judgement on the experiment; it ranks what the experiment COSTS:
+    /// time, hands-on steps, reagents and the number of things that can go
+    /// wrong. The wording reflects that, so a low score reads as "this takes
+    /// more doing", never as "this is a worse experiment".
+    ///
+    /// Bands follow the 30-point tier gaps in computeScore, with a little room
+    /// either side for the within-tier modifiers.
+    nonisolated static func scoreLabel(_ score: Int) -> String {
+        switch score {
+        case 185...:    return "Simplest"
+        case 140..<185: return "Simple"
+        case 95..<140:  return "Moderate"
+        case 45..<95:   return "More involved"
+        default:        return "Most involved"
+        }
     }
 
     /// Score penalty for methylation issues in a strategy's warning list.
