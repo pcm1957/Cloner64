@@ -43,6 +43,8 @@ Cloner 64 is not signed with an Apple Developer certificate, so macOS blocks it 
 ### Sequence Map
 - Text-based restriction map with cut sites marked on the sequence
 - Optional translation frames above and below the DNA
+- Search for a DNA or an amino acid sequence: enter DNA 5′ to 3′ or protein N to C, and both strands and the reading frames on display are searched. Each hit is highlighted on the strand or frame it belongs to, and a line under the toolbar says where the hits are
+- Header records whether the map was built from the full enzyme library or from **My Enzymes** only
 - Feature list with editable colours; copy and print
 
 ### Restriction Enzymes
@@ -58,8 +60,9 @@ Cloner 64 is not signed with an Apple Developer certificate, so macOS blocks it 
 
 ### Cloning Tools
 - **Build a Construct** — in silico ligation with sticky-end compatibility checking, end processing (fill/trim) and construct verification
-- **Predictive Cloning** — screens enzyme combinations for a vector and insert; scores directionality, internal cuts, reading frame (fusion mode), methylation and more; supports partial digests, compatible-end cross-cloning, multi-source scanning and PCR routes
+- **Predictive Cloning** — screens enzyme combinations for a vector and insert and ranks what works, laid out as three steps. Scores directionality, internal cuts, methylation and more; supports partial digests, compatible-end cross-cloning, multi-source scanning and PCR routes. In fusion mode it checks the reading frame at every junction, leaves out strategies that would not give a fusion protein, and suggests vectors carrying the same tag in another frame when no enzyme route fits
 - **Shuttle Vector Routes** — finds PCR-free multi-step routes through intermediate vectors, optionally limited to the vectors you have (**My Vectors**)
+- **Cloning Vector Library** — details of common vectors (cloning sites, markers, sizes), including the frame-variant families pET-28a/b/c, pET-21a/b/c, pGEX-4T-1/2/3, pGEX-6P-1/2/3 and pBAD/His A/B/C; add your own
 - **Check Construct** — suggests diagnostic digests (fingerprint, feature presence, orientation, comparison with parent)
 - **Virtual Cutter** — virtual digest with a simulated agarose gel, adjustable from 0.5% to 2.0%; export as PDF or PNG; print
 
@@ -76,6 +79,7 @@ Cloner 64 is not signed with an Apple Developer certificate, so macOS blocks it 
 
 ### Help
 - Context help throughout the app: turn it on from the Help menu, then hover over any control
+- The welcome window shows whether a newer release is available, with a link to this page
 
 ## Keyboard Shortcuts
 
@@ -125,6 +129,6 @@ Inspired by Serial Cloner, created by Franck Perez, and by Christian Marck's Str
 
 ---
 
-**Version**: 1.4  
-**Last Updated**: September 2026  
+**Version**: 1.5  
+**Last Updated**: October 2026  
 **Platform**: macOS 13.5+
